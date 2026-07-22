@@ -6,7 +6,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
 const isMac = process.platform === "darwin";
-const productName = "Boop";
+const productName = "Azraj";
 const mutableRuntimeItems = [
   ".env",
   ".env.local",
@@ -453,7 +453,7 @@ function createWindow() {
     height: 780,
     minWidth: 920,
     minHeight: 620,
-    title: "Boop",
+    title: "Azraj",
     icon: getIconPath(),
     show: false,
     backgroundColor: "#101012",
@@ -508,7 +508,7 @@ function statusMenuTemplate() {
   const canOpenDashboard = status.dashboard === "running" && Boolean(status.dashboardUrl);
   const canStop = Boolean(boopProcess || bootstrapProcess || starting);
   return [
-    { label: `Boop: ${plainStatus(status.state)}`, enabled: false },
+    { label: `Azraj: ${plainStatus(status.state)}`, enabled: false },
     { type: "separator" },
     { label: `Server: ${plainStatus(status.server)}`, enabled: false },
     { label: `Convex: ${plainStatus(status.convex)}`, enabled: false },
@@ -521,15 +521,15 @@ function statusMenuTemplate() {
       enabled: canOpenDashboard,
       click: openDashboardInWindow,
     },
-    { label: "Show Boop", click: loadStatusPage },
+    { label: "Show Azraj", click: loadStatusPage },
     {
       label: "Check Sendblue Webhook",
       enabled: Boolean(status.expectedWebhookUrl || status.publicUrl),
       click: checkSendblueWebhook,
     },
-    { label: "Start Boop", enabled: !boopProcess && !starting, click: startBoop },
-    { label: "Restart Boop", enabled: !starting, click: restartBoop },
-    { label: "Stop Boop", enabled: canStop, click: stopBoop },
+    { label: "Start Azraj", enabled: !boopProcess && !starting, click: startBoop },
+    { label: "Restart Azraj", enabled: !starting, click: restartBoop },
+    { label: "Stop Azraj", enabled: canStop, click: stopBoop },
     { type: "separator" },
     { label: "Open Runtime Folder", click: () => shell.openPath(runtimeRoot) },
   ];
@@ -756,7 +756,7 @@ async function startBoop() {
         server: "stopped",
         convex: "stopped",
         dashboard: "stopped",
-        lastMessage: `Boop exited with code ${code}`,
+        lastMessage: `Azraj exited with code ${code}`,
       });
     }
   });
@@ -778,7 +778,7 @@ function stopBoop() {
   starting = false;
   intentionalStop = true;
   resetServiceStatuses("stopped");
-  setStatus({ lastMessage: "Boop is stopped." });
+  setStatus({ lastMessage: "Azraj is stopped." });
   child.kill("SIGTERM");
 }
 
@@ -791,7 +791,7 @@ function restartBoop() {
     dashboard: "starting",
     tunnel: "unknown",
     publicUrl: "",
-    lastMessage: "Restarting Boop.",
+    lastMessage: "Restarting Azraj.",
   });
   setTimeout(startBoop, 700);
 }

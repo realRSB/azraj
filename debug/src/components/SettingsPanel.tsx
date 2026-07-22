@@ -193,7 +193,7 @@ export function SettingsPanel({
       </div>
 
       <div className="space-y-3">
-        <TextBoopRow isDark={isDark} desktopPhoneNumber={desktopPhoneNumber} />
+        <TextAzrajRow isDark={isDark} desktopPhoneNumber={desktopPhoneNumber} />
         <RuntimeRow isDark={isDark} />
         {SETTINGS.map((s) =>
           s.kind === "toggle" ? (
@@ -210,7 +210,7 @@ export function SettingsPanel({
   );
 }
 
-function TextBoopRow({
+function TextAzrajRow({
   isDark,
   desktopPhoneNumber,
 }: {
@@ -281,11 +281,11 @@ function TextBoopRow({
 
   return (
     <SettingShell
-      label="Text Boop"
+      label="Text Azraj"
       description={
         demoModeEnabled
           ? "Demo mode is hiding the real Sendblue number and showing a placeholder instead."
-          : "Text or iMessage this Sendblue number to talk to Boop. Message it from a different phone; it is the number people text TO, not your personal cell."
+          : "Text or iMessage this Sendblue number to talk to Azraj. Message it from a different phone; it is the number people text TO, not your personal cell."
       }
       debugLine={debugLine}
       isDark={isDark}

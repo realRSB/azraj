@@ -215,7 +215,7 @@ export function buildMemoryGraph(records: MemoryRecord[]): {
     {
       id: "root:memory",
       kind: "root",
-      label: "Boop memory",
+      label: "Azraj memory",
       memoryCount: records.length,
       topicCount: populatedTopics.length,
       fx: 0,

@@ -348,7 +348,7 @@ export function App() {
         >
           <div>
             <div className={`text-[11px] ${isDark ? "text-zinc-500" : "text-zinc-500"}`}>
-              Boop Debug
+              Azraj Debug
             </div>
             <h2 className={`text-sm font-medium ${isDark ? "text-zinc-100" : "text-zinc-950"}`}>
               {currentView}
@@ -451,7 +451,7 @@ function ConnectionHeader({
   const open = hovered || expanded;
   const services = desktopStatus
     ? [
-        { label: "Boop agent", value: desktopStatus.state },
+        { label: "Azraj agent", value: desktopStatus.state },
         { label: "Server", value: desktopStatus.server },
         { label: "Convex", value: desktopStatus.convex },
         { label: "Dashboard", value: desktopStatus.dashboard },
@@ -488,7 +488,7 @@ function ConnectionHeader({
     : healthy
       ? "Connection healthy"
       : connected
-        ? "Boop starting"
+        ? "Azraj starting"
         : "Disconnected";
 
   return (
@@ -505,10 +505,10 @@ function ConnectionHeader({
           isDark ? "hover:bg-white/5" : "hover:bg-white/70"
         }`}
       >
-        <img src={boopGif} alt="Boop" className="h-8 w-8 rounded-2xl object-cover" />
+        <img src={boopGif} alt="Azraj" className="h-8 w-8 rounded-2xl object-cover" />
         <div className="min-w-0">
           <h1 className={`truncate text-sm font-semibold ${isDark ? "text-zinc-100" : "text-zinc-950"}`}>
-            Boop
+            Azraj
           </h1>
           <div
             className={`flex items-center gap-1.5 truncate text-xs ${
@@ -572,7 +572,7 @@ function ConnectionHeader({
           {expanded && desktopStatus && (
             <div className={`mt-3 space-y-2 border-t pt-3 ${isDark ? "border-white/10" : "border-zinc-200"}`}>
               <ConnectionDetail label="Convex URL" value={desktopStatus.convexUrl} isDark={isDark} />
-              <ConnectionDetail label="Text Boop" value={desktopStatus.phoneNumber} isDark={isDark} />
+              <ConnectionDetail label="Text Azraj" value={desktopStatus.phoneNumber} isDark={isDark} />
               <ConnectionDetail label="Public URL" value={desktopStatus.publicUrl} isDark={isDark} />
               <ConnectionDetail
                 label="Expected webhook"

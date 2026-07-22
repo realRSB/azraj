@@ -148,7 +148,7 @@ export function AppleSection({ isDark }: { isDark: boolean }) {
       }
       setMessage({
         tone: "ok",
-        text: "Opened Automation settings. Enable Notes or Reminders for Boop, or for the terminal app running Boop.",
+        text: "Opened Automation settings. Enable Notes or Reminders for Azraj, or for the terminal app running Azraj.",
       });
     } catch (err) {
       setMessage({ tone: "err", text: err instanceof Error ? err.message : String(err) });

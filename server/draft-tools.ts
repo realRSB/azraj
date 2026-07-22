@@ -11,6 +11,12 @@ function randomId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+export function isCurrentConversationDraft(kind: string): boolean {
+  return /^(?:imessage|sms|sendblue|azraj|boop|accountability|check-?in)(?:[.:_-]|$)/i.test(
+    kind.trim(),
+  );
+}
+
 export function createDraftStagingTools(conversationId: string): RuntimeTool[] {
   return [
     defineRuntimeTool(
@@ -18,6 +24,7 @@ export function createDraftStagingTools(conversationId: string): RuntimeTool[] {
       "save_draft",
       `Save a draft of an external action (email, calendar event, message, etc.) for the user to review.
 ALWAYS call this instead of sending or creating something directly. The user will say "send it" in the next turn to commit.
+Do NOT use this for an accountability check-in, reminder, motivational nudge, or message back to the current iMessage conversation. For AUTOMATION tasks, return the check-in text directly so the automation runner can deliver it.
 
 - summary: one-line description the user will see.
 - payload: JSON string with everything needed to execute the draft (provider-specific fields).
@@ -28,6 +35,12 @@ ALWAYS call this instead of sending or creating something directly. The user wil
         payload: z.string().describe("JSON string with the data needed to execute."),
       },
       async (args) => {
+        if (isCurrentConversationDraft(args.kind)) {
+          return runtimeText(
+            "Do not save this as a draft. This is a current iMessage conversation/check-in message; return the user-facing text directly so the dispatcher or automation runner can deliver it.",
+            false,
+          );
+        }
         const draftId = randomId("draft");
         await convex.mutation(api.drafts.create, {
           draftId,
@@ -83,6 +96,16 @@ export function createDraftDecisionTools(
         const draft = await convex.query(api.drafts.get, { draftId: args.draftId });
         if (!draft || draft.status !== "pending") {
           return runtimeText(`Draft ${args.draftId} not found or already decided.`, false);
+        }
+        if (isCurrentConversationDraft(draft.kind)) {
+          await convex.mutation(api.drafts.setStatus, {
+            draftId: args.draftId,
+            status: "rejected",
+          });
+          return runtimeText(
+            `Draft ${args.draftId} is a current iMessage/check-in draft, not a sendable external action. I cancelled it. Reply directly to the user or create an automation instead.`,
+            false,
+          );
         }
         await convex.mutation(api.drafts.setStatus, {
           draftId: args.draftId,

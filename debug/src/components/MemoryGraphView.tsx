@@ -81,7 +81,7 @@ function drawRootNode(ctx: CanvasRenderingContext2D, node: RootNode, isDark: boo
   ctx.textBaseline = "middle";
   ctx.fillStyle = isDark ? "#fafafa" : "#18181b";
   ctx.font = "600 10.5px Geist, ui-sans-serif, system-ui";
-  ctx.fillText("Boop memory", x + 29, node.fy - 6);
+  ctx.fillText("Azraj memory", x + 29, node.fy - 6);
   ctx.fillStyle = isDark ? "#a1a1aa" : "#71717a";
   ctx.font = "7.5px Geist, ui-sans-serif, system-ui";
   ctx.fillText(`${node.memoryCount} memories`, x + 29, node.fy + 8);

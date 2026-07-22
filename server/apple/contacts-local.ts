@@ -11,7 +11,7 @@ const SQLITE_MAX_BUFFER = 5 * 1024 * 1024;
 const CONTACT_MATCH_LIMIT = 50;
 
 export const LOCAL_CONTACTS_FULL_DISK_ACCESS_MESSAGE =
-  "Boop needs Full Disk Access to read Contacts for iMessage contact matching. In System Settings -> Privacy & Security -> Full Disk Access, add Boop for the desktop app or your terminal for npm run dev, then restart Boop.";
+  "Azraj needs Full Disk Access to read Contacts for iMessage contact matching. In System Settings -> Privacy & Security -> Full Disk Access, add Azraj for the desktop app or your terminal for npm run dev, then restart Azraj.";
 
 interface ContactCandidateRow {
   id: number;

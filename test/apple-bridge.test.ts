@@ -98,7 +98,7 @@ describe("apple bridge client and tools", () => {
   it("surfaces the bridge's own message on permission errors", async () => {
     writeBridgeInfo();
     const message =
-      'Calendar access is required. Open the Boop desktop app\'s "Apple Data" tab and grant Calendar access.';
+      'Calendar access is required. Open the Azraj desktop app\'s "Apple Data" tab and grant Calendar access.';
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => jsonResponse(403, { error: "calendar-access-required", message })),

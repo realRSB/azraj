@@ -78,7 +78,7 @@
   },
   "build": {
     "appId": "com.raroque.boop",
-    "productName": "Boop",
+    "productName": "Azraj",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "asar": false,
     "files": [

@@ -18,7 +18,7 @@ import readline from "node:readline/promises";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
-const productName = "Boop";
+const productName = "Azraj";
 
 const runtimeItems = [
   ".env.example",
@@ -248,13 +248,13 @@ async function copyToApplicationsIfWanted(appPath) {
 
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const answer = await rl.question("\nCopy Boop.app to /Applications now? [Y/n] ");
+    const answer = await rl.question("\nCopy Azraj.app to /Applications now? [Y/n] ");
     if (answer.trim().toLowerCase().startsWith("n")) return;
   } finally {
     rl.close();
   }
 
-  const destination = "/Applications/Boop.app";
+  const destination = "/Applications/Azraj.app";
   rmSync(destination, { force: true, recursive: true });
   await run("ditto", [appPath, destination], { cwd: root });
   console.log(`\nInstalled: ${destination}`);
@@ -262,9 +262,9 @@ async function copyToApplicationsIfWanted(appPath) {
 
 async function main() {
   console.log(`
-Boop desktop setup
+Azraj desktop setup
 
-This command prepares the desktop app runtime folder, runs Boop's existing setup
+This command prepares the desktop app runtime folder, runs Azraj's existing setup
 there, then builds the desktop app. Secrets stay in:
   ${runtimeRoot}
 
@@ -277,7 +277,7 @@ They are not copied into the app bundle.
   prepareRuntimeFiles();
   console.log(`Runtime folder: ${runtimeRoot}`);
 
-  logStep("Running Boop setup in the desktop runtime");
+  logStep("Running Azraj setup in the desktop runtime");
   await runRuntimeSetup();
 
   logStep("Building the desktop app");
@@ -285,7 +285,7 @@ They are not copied into the app bundle.
 
   const appPath =
     process.platform === "darwin"
-      ? join(root, "dist", process.arch === "arm64" ? "mac-arm64" : "mac", "Boop.app")
+      ? join(root, "dist", process.arch === "arm64" ? "mac-arm64" : "mac", "Azraj.app")
       : join(root, "dist");
   await copyToApplicationsIfWanted(appPath);
 
@@ -295,7 +295,7 @@ Done.
 Runtime: ${runtimeRoot}
 App:     ${appPath}
 
-Launch Boop from the app bundle, then keep it in the Dock if you want it handy.
+Launch Azraj from the app bundle, then keep it in the Dock if you want it handy.
 `);
 }
 
