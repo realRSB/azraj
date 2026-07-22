@@ -683,7 +683,7 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
         showToast(`Could not open Full Disk Access settings: ${err?.error ?? r.statusText}`);
         return;
       }
-      showToast("Opened Full Disk Access settings. Add Boop, then restart Boop from the Connection header.", "info");
+      showToast("Opened Full Disk Access settings. Add Azraj, then restart Azraj from the Connection header.", "info");
     } catch (err) {
       showToast(`Could not open Full Disk Access settings: ${String(err)}`);
     } finally {
@@ -701,7 +701,7 @@ export function ComposioSection({ isDark }: { isDark: boolean }) {
         showToast(`Could not open Automation settings: ${err?.error ?? r.statusText}`);
         return;
       }
-      showToast(`Opened Automation settings. Enable ${label} for Boop.`, "info");
+      showToast(`Opened Automation settings. Enable ${label} for Azraj.`, "info");
     } catch (err) {
       showToast(`Could not open Automation settings: ${String(err)}`);
     } finally {
@@ -1121,7 +1121,7 @@ function IMessageConnectionCard({
             </span>
           </div>
           <p className={`text-xs ${muted} leading-snug mt-0.5 line-clamp-2`}>
-            Reads local Messages history from this Mac. Boop needs Full Disk Access.
+            Reads local Messages history from this Mac. Azraj needs Full Disk Access.
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
             <span className={`inline-flex items-center gap-1.5 text-xs ${state.textClass}`}>
@@ -1179,7 +1179,7 @@ function IMessageConnectionCard({
               : "border-amber-200 bg-amber-50 text-amber-800"
           }`}
         >
-          iMessage reads only work on macOS. Run Boop on the Mac whose Messages you want to read.
+          iMessage reads only work on macOS. Run Azraj on the Mac whose Messages you want to read.
           {bridge?.error && <span className="block mt-1 mono text-[11px] opacity-80">{bridge.error}</span>}
         </div>
       )}
@@ -1194,7 +1194,7 @@ function IMessageConnectionCard({
         >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>
-              Grant Full Disk Access to Boop, then restart Boop from the Connection header.
+              Grant Full Disk Access to Azraj, then restart Azraj from the Connection header.
             </span>
             <button
               type="button"
@@ -1322,7 +1322,7 @@ function AppleNotesConnectionCard({
               : "border-amber-200 bg-amber-50 text-amber-800"
           }`}
         >
-          Apple Notes reads only work on macOS. Run Boop on the Mac whose Notes you want to read.
+          Apple Notes reads only work on macOS. Run Azraj on the Mac whose Notes you want to read.
           {bridge?.error && <span className="block mt-1 mono text-[11px] opacity-80">{bridge.error}</span>}
         </div>
       )}
@@ -1341,7 +1341,7 @@ function AppleNotesConnectionCard({
         >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>
-              Allow the app running Boop to control Notes. Boop only exposes read-only note tools.
+              Allow the app running Azraj to control Notes. Azraj only exposes read-only note tools.
             </span>
             <div className="flex shrink-0 flex-wrap gap-2">
               <button
@@ -1483,7 +1483,7 @@ function AppleRemindersConnectionCard({
               : "border-amber-200 bg-amber-50 text-amber-800"
           }`}
         >
-          Apple Reminders reads only work on macOS. Run Boop on the Mac whose Reminders you want to read.
+          Apple Reminders reads only work on macOS. Run Azraj on the Mac whose Reminders you want to read.
           {bridge?.error && <span className="block mt-1 mono text-[11px] opacity-80">{bridge.error}</span>}
         </div>
       )}
@@ -1502,7 +1502,7 @@ function AppleRemindersConnectionCard({
         >
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>
-              Allow the app running Boop to control Reminders. Boop only exposes read-only reminder tools.
+              Allow the app running Azraj to control Reminders. Azraj only exposes read-only reminder tools.
             </span>
             <div className="flex shrink-0 flex-wrap gap-2">
               <button

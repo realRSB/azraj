@@ -486,7 +486,7 @@ async function importSendblueFromCli(): Promise<SendblueImportResult> {
           const { pickedNumber } = await prompts({
             type: "select",
             name: "pickedNumber",
-            message: "You have multiple Sendblue numbers — which one should Boop reply from?",
+            message: "You have multiple Sendblue numbers — which one should Azraj reply from?",
             choices: phones.map((p) => ({ title: p, value: p })),
             initial: 0,
           });
@@ -509,12 +509,12 @@ async function importSendblueFromCli(): Promise<SendblueImportResult> {
 }
 
 async function main() {
-  banner("boop-agent setup");
+  banner("azraj setup");
 
   console.log(`
 What this does:
   1. Pulls your Sendblue keys (via their CLI, or you paste them)
-  2. Asks whether Boop should use your Claude Code or Codex subscription
+  2. Asks whether Azraj should use your Claude Code or Codex subscription
   3. Optionally enables local browser use
   4. Runs \`npx convex dev\` to create a Convex project
   5. Writes .env.local
@@ -571,7 +571,7 @@ Before you start:
       {
         type: "select",
         name: "BOOP_RUNTIME",
-        message: "Which subscription should Boop use for the agent runtime?",
+        message: "Which subscription should Azraj use for the agent runtime?",
         choices: [
           {
             title: "Claude Code subscription",
@@ -606,7 +606,7 @@ Before you start:
         type: (_prev: unknown, values: Record<string, unknown>) =>
           values.BOOP_RUNTIME === "codex" ? "select" : null,
         name: "BOOP_CODEX_REASONING_EFFORT",
-        message: "How much Codex reasoning effort should Boop use?",
+        message: "How much Codex reasoning effort should Azraj use?",
         choices: CODEX_REASONING_CHOICES,
         initial: initialForChoice(
           CODEX_REASONING_CHOICES,
@@ -719,12 +719,12 @@ Before you start:
       ? "openai"
       : "local";
   console.log(`
-Boop's recall() searches your stored memories by semantic similarity. Pick
+Azraj's recall() searches your stored memories by semantic similarity. Pick
 how you want to generate embeddings:
 
   • Local  — free, runs in-process via @huggingface/transformers
             (Xenova/bge-large-en-v1.5, 1024-dim). First run downloads
-            ~1.3GB and caches in Boop's local data folder. No API key.
+            ~1.3GB and caches in Azraj's local data folder. No API key.
   • Voyage — paid, ~$0.06/M tokens. Slightly stronger English retrieval.
   • OpenAI — paid, ~$0.13/M tokens. Comparable to Voyage.
 
@@ -735,7 +735,7 @@ so you can switch later by adding/removing the API key.
     {
       type: "select",
       name: "embeddingProvider",
-      message: "Which embedding provider should boop use?",
+      message: "Which embedding provider should Azraj use?",
       choices: [
         { title: "Local (free, recommended)", value: "local" },
         { title: "Voyage (paid — I have a key)", value: "voyage" },
@@ -801,7 +801,7 @@ so you can switch later by adding/removing the API key.
   // ---- Local browser use ---------------------------------------------------
   banner("Local browser use — optional");
   console.log(`
-Boop can optionally expose a local Patchright Chrome profile to spawned agents.
+Azraj can optionally expose a local Patchright Chrome profile to spawned agents.
 Use it for login-required services, visual browser workflows, or sites that
 reject ordinary automation. It is off by default, and agents cannot see or use
 the browser integration unless you enable it.
@@ -931,8 +931,8 @@ If you haven't already:
   • Run once:           codex login
   • Sign in when prompted
 
-Boop reads the Codex credentials saved on disk. Set BOOP_CODEX_AUTH_HOME in
-.env.local only if you need Boop to read a different Codex home containing
+Azraj reads the Codex credentials saved on disk. Set BOOP_CODEX_AUTH_HOME in
+.env.local only if you need Azraj to read a different Codex home containing
 auth.json.
 
 ${codexInstalled ? "✓ Codex CLI found on PATH." : "⚠ Codex CLI was not found on PATH. Install it before running `npm run dev`."}

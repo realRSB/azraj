@@ -318,7 +318,7 @@ const messageSnippets = [
   ],
   [
     "Find receipts from this week and group them by project.",
-    "Found six receipts and grouped them under Boop, Home, and Travel.",
+    "Found six receipts and grouped them under Azraj, Home, and Travel.",
     "Add the flight hold to my calendar if it still looks reasonable.",
     "The flight still lands before the dinner window. I created a tentative calendar event with the fare link.",
     "Remember that I prefer no meetings before 9:30 on Fridays.",
@@ -393,7 +393,7 @@ const agentTemplates: AgentTemplate[] = [
     name: "Receipt organizer",
     task: "Find receipts from the last week and group them by project.",
     result:
-      "Grouped 6 receipts into Boop, Home, and Travel. Added notes for the two reimbursable items.",
+      "Grouped 6 receipts into Azraj, Home, and Travel. Added notes for the two reimbursable items.",
     integrations: ["gmail", "googledrive"],
     tool: "mcp__gmail__search_email",
     query: "newer_than:7d receipt OR invoice",
@@ -1055,8 +1055,8 @@ function demoToolResultText(template: AgentTemplate, integration: string, status
     imessage: "iMessage",
     "apple-notes": "Apple Notes",
     "apple-reminders": "Apple Reminders",
-    boop_memory: "Boop memory",
-    boop_usage: "Boop usage",
+    boop_memory: "Azraj memory",
+    boop_usage: "Azraj usage",
   };
   const subject = displayNames[integration] ?? integration.replace(/[_-]+/g, " ");
   return `${subject} returned relevant context for "${template.name}". ${template.result}`;

@@ -1,6 +1,6 @@
 # Architecture
 
-boop-agent is a small distributed system disguised as a single-server app. Four moving parts, each doing one job.
+Azraj is a small distributed system disguised as a single-server app. Four moving parts, each doing one job.
 
 ## The four parts
 
@@ -125,7 +125,7 @@ Keeps memory sharper over time instead of noisier. The full run is logged in `co
 
 ### 8. Integrations — Composio (`server/composio.ts`)
 
-Boop delegates all third-party integrations to [Composio](https://composio.dev/?utm_source=chris&utm_medium=youtube&utm_campaign=collab). One SDK, 1000+ toolkits, hosted auth.
+Azraj delegates all third-party integrations to [Composio](https://composio.dev/?utm_source=chris&utm_medium=youtube&utm_campaign=collab). One SDK, 1000+ toolkits, hosted auth.
 
 Flow:
 1. User clicks **Connect** on a toolkit card in the debug dashboard's Connections tab.
@@ -184,7 +184,7 @@ Runtime shape:
 - The Patchright package is an optional dependency and the browser binary is installed only by explicit setup/UI opt-in.
 
 Security model:
-- Boop does not store third-party passwords or OAuth tokens for local browser use. Browser cookies and sessions live in the chosen Chrome profile directory.
+- Azraj does not store third-party passwords or OAuth tokens for local browser use. Browser cookies and sessions live in the chosen Chrome profile directory.
 - `browser_fill` redacts the typed value before tool-use arguments are written to Convex agent logs.
 - The feature is for login-required services, visual browser workflows, JS-heavy apps, and bot-wall-sensitive pages where native integrations or `WebFetch` are not enough.
 - The login handoff is separately gated by `browser_login_handoff`, so a user can allow browser automation without allowing agent-triggered login windows.
@@ -258,6 +258,6 @@ Steps 6–7 run in parallel where safe. Step 8 is fire-and-forget — the user n
 - **Single-process scheduler.** The automation loop runs in-process. If you deploy multiple instances, you'll double-fire — add a lock in Convex or run a dedicated scheduler pod.
 - **No intelligence runs** (proactive context gathering) — the original had it, it's complex, and it's opinionated about what it watches. Add it if you want.
 - **No knowledge graph** — relationships between memories are represented via `supersedes` only, not a full graph.
-- **Skills library omitted** — too Boop-specific; write your own prompts/policies in `server/*-agent.ts` system prompts.
+- **Skills library omitted** — too product-specific; write your own prompts/policies in `server/*-agent.ts` system prompts.
 
 All of these are one-file additions. The point of the template is to give you the smallest surface that still actually works.
