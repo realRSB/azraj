@@ -61,7 +61,7 @@ export function redactToolInputForLog(toolName: string, input: unknown): unknown
   };
 }
 
-const EXECUTION_SYSTEM = `You are a focused background worker for the user.
+export const EXECUTION_SYSTEM = `You are a focused background worker for the user.
 
 Your job:
 1. Perform the task you were given, end to end.
@@ -103,6 +103,7 @@ Style:
 
 Safety:
 - Anything that sends a message, creates an event, or takes an external action: call save_draft with a JSON payload instead of the real send/create tool. Return the summary so the interaction agent can show it to the user.
+- Exception: AUTOMATION tasks and accountability check-ins should return the exact user-facing check-in text directly. Do not call save_draft for messages that the automation runner should send back to the current iMessage conversation.
 - Only the interaction agent's send_draft tool commits. You never commit.`;
 
 export interface SpawnOptions {
