@@ -16,6 +16,7 @@ const SESSION_KEY = "azraj.publicSessionToken";
 
 type Page = "home" | "dashboard";
 type ConnectStep = "phone" | "code" | "connected";
+type DashboardView = "overview" | "messages" | "memory" | "checkins" | "usage";
 
 type PublicDashboard = {
   user: {
@@ -322,51 +323,55 @@ export function App() {
   }
 
   return (
-    <main className="azraj-page">
+    <main className={`azraj-page ${page === "dashboard" ? "dashboard-page" : ""}`}>
       <div id="azraj-clouds" className="clouds" aria-hidden="true" />
 
       <CustomCursor active={cursor.active} style={cursorStyle} />
 
       {splashVisible && <Splash />}
 
-      <header className="site-nav" aria-label="Azraj navigation">
-        <nav className="nav-links" aria-label="Page sections">
-          <button type="button" onClick={() => navigate("home")}>
-            home
+      {page !== "dashboard" && (
+        <header className="site-nav" aria-label="Azraj navigation">
+          <nav className="nav-links" aria-label="Page sections">
+            <button type="button" onClick={() => navigate("home")}>
+              home
+            </button>
+            <a href="#how">how it works</a>
+          </nav>
+          <button className="nav-brand" type="button" onClick={() => navigate("home")} aria-label="Azraj home">
+            azraj
           </button>
-          <a href={page === "home" ? "#how" : "/#how"}>how it works</a>
-        </nav>
-        <button className="nav-brand" type="button" onClick={() => navigate("home")} aria-label="Azraj home">
-          azraj
-        </button>
-        <div className="nav-auth" aria-label="Account actions">
-          {sessionToken ? (
-            <>
-              <button type="button" onClick={() => navigate("dashboard")}>
-                dashboard
-              </button>
-              <button type="button" className="nav-auth-primary" onClick={signOut}>
-                sign out
-              </button>
-            </>
-          ) : (
-            <>
-              <button type="button" onClick={() => setConnectOpen(true)}>
-                sign in
-              </button>
-              <button type="button" className="nav-auth-primary" onClick={() => setConnectOpen(true)}>
-                sign up
-              </button>
-            </>
-          )}
-        </div>
-      </header>
+          <div className="nav-auth" aria-label="Account actions">
+            {sessionToken ? (
+              <>
+                <button type="button" onClick={() => navigate("dashboard")}>
+                  dashboard
+                </button>
+                <button type="button" className="nav-auth-primary" onClick={signOut}>
+                  sign out
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" onClick={() => setConnectOpen(true)}>
+                  sign in
+                </button>
+                <button type="button" className="nav-auth-primary" onClick={() => setConnectOpen(true)}>
+                  sign up
+                </button>
+              </>
+            )}
+          </div>
+        </header>
+      )}
 
       {page === "dashboard" ? (
         <UserDashboard
           dashboard={dashboard}
           sessionToken={sessionToken}
           onConnect={() => setConnectOpen(true)}
+          onHome={() => navigate("home")}
+          onSignOut={signOut}
         />
       ) : (
         <>
@@ -619,11 +624,17 @@ function UserDashboard({
   dashboard,
   sessionToken,
   onConnect,
+  onHome,
+  onSignOut,
 }: {
   dashboard: PublicDashboard | null | undefined;
   sessionToken: string | null;
   onConnect: () => void;
+  onHome: () => void;
+  onSignOut: () => void;
 }) {
+  const [view, setView] = useState<DashboardView>("overview");
+
   if (!sessionToken) {
     return (
       <section className="public-dashboard empty-dashboard">
@@ -670,141 +681,264 @@ function UserDashboard({
 
   const newestMessage = dashboard.recentMessages[0];
   const dailyMax = Math.max(...dashboard.metrics.dailyBuckets.map((bucket) => bucket.costUsd), 0.01);
+  const navItems: Array<{ id: DashboardView; label: string; value: string }> = [
+    { id: "overview", label: "Dashboard", value: formatNumber(dashboard.metrics.messages) },
+    { id: "messages", label: "Messages", value: formatNumber(dashboard.recentMessages.length) },
+    { id: "memory", label: "Memory", value: formatNumber(dashboard.metrics.memories.total) },
+    { id: "checkins", label: "Check-ins", value: formatNumber(dashboard.metrics.automations.enabled) },
+    { id: "usage", label: "Usage", value: formatCurrency(dashboard.metrics.usage.totalCost) },
+  ];
 
   return (
-    <section className="public-dashboard">
-      <div className="dashboard-hero">
-        <div>
-          <p className="eyebrow">your azraj dashboard</p>
-          <h1>accountability, receipts included.</h1>
-          <span>
-            signed in as {maskPhone(dashboard.user.phoneE164)}. every card here is scoped
-            to your verified iMessage thread.
-          </span>
+    <section className="public-dashboard dashboard-admin-surface">
+      <aside className="dashboard-sidebar">
+        <div className="dashboard-brand-block">
+          <div className="dashboard-avatar">a</div>
+          <div>
+            <h1>Azraj</h1>
+            <p>Connection healthy</p>
+          </div>
         </div>
-        <a className="connect-open dashboard-imessage" href={`sms:${smsNumber(AZRAJ_NUMBER)}`}>
-          <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
-          text azraj
-        </a>
-      </div>
 
-      <div className="dashboard-grid">
-        <MetricCard label="messages" value={formatNumber(dashboard.metrics.messages)} detail="conversation rows" />
-        <MetricCard
-          label="memory"
-          value={formatNumber(dashboard.metrics.memories.total)}
-          detail={`${dashboard.metrics.memories.shortTerm} short / ${dashboard.metrics.memories.longTerm} long / ${dashboard.metrics.memories.permanent} perm`}
-        />
-        <MetricCard
-          label="usage"
-          value={formatCurrency(dashboard.metrics.usage.totalCost)}
-          detail={`${formatNumber(dashboard.metrics.usage.totalTokens)} tokens`}
-        />
-        <MetricCard
-          label="check-ins"
-          value={formatNumber(dashboard.metrics.automations.enabled)}
-          detail={`${dashboard.metrics.automations.total} scheduled`}
-        />
-      </div>
+        <nav className="dashboard-side-nav" aria-label="Dashboard sections">
+          {navItems.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              data-active={view === item.id}
+              onClick={() => setView(item.id)}
+            >
+              <span>{item.label}</span>
+              <small>{item.value}</small>
+            </button>
+          ))}
+        </nav>
 
-      <div className="dashboard-main">
-        <section className="dashboard-panel usage-panel">
-          <div className="dashboard-panel-head">
-            <div>
-              <p>usage trend</p>
-              <h2>daily cost</h2>
-            </div>
-            <span>{formatCurrency(dashboard.metrics.usage.totalCost)} total</span>
+        <div className="dashboard-sidebar-card">
+          <p>Memory</p>
+          <div>
+            <span>{dashboard.metrics.memories.shortTerm}<small>short</small></span>
+            <span>{dashboard.metrics.memories.longTerm}<small>long</small></span>
+            <span>{dashboard.metrics.memories.permanent}<small>perm</small></span>
           </div>
-          <div className="usage-bars" aria-label="Daily usage cost">
-            {dashboard.metrics.dailyBuckets.length > 0 ? (
-              dashboard.metrics.dailyBuckets.slice(-14).map((bucket) => (
-                <div key={bucket.day} className="usage-bar">
-                  <span style={{ height: `${Math.max(8, (bucket.costUsd / dailyMax) * 100)}%` }} />
-                  <small>{bucket.day.slice(5)}</small>
+        </div>
+
+        <div className="dashboard-sidebar-actions">
+          <button type="button" onClick={onHome}>home</button>
+          <button type="button" onClick={onSignOut}>sign out</button>
+        </div>
+      </aside>
+
+      <div className="dashboard-workspace">
+        <header className="dashboard-topbar">
+          <div>
+            <p>Azraj Dashboard</p>
+            <h2>{navItems.find((item) => item.id === view)?.label ?? "Dashboard"}</h2>
+          </div>
+          <div className="dashboard-topbar-actions">
+            <span>{maskPhone(dashboard.user.phoneE164)}</span>
+            <a href={`sms:${smsNumber(AZRAJ_NUMBER)}`}>
+              <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
+              text azraj
+            </a>
+          </div>
+        </header>
+
+        <main className="dashboard-content">
+          {(view === "overview" || view === "usage") && (
+            <div className="dashboard-grid">
+              <MetricCard label="messages" value={formatNumber(dashboard.metrics.messages)} detail="conversation rows" />
+              <MetricCard
+                label="memory"
+                value={formatNumber(dashboard.metrics.memories.total)}
+                detail={`${dashboard.metrics.memories.shortTerm} short / ${dashboard.metrics.memories.longTerm} long / ${dashboard.metrics.memories.permanent} perm`}
+              />
+              <MetricCard
+                label="usage"
+                value={formatCurrency(dashboard.metrics.usage.totalCost)}
+                detail={`${formatNumber(dashboard.metrics.usage.totalTokens)} tokens`}
+              />
+              <MetricCard
+                label="check-ins"
+                value={formatNumber(dashboard.metrics.automations.enabled)}
+                detail={`${dashboard.metrics.automations.total} scheduled`}
+              />
+            </div>
+          )}
+
+          {(view === "overview" || view === "usage") && (
+            <section className="dashboard-panel usage-panel">
+              <PanelHeader
+                eyebrow="usage"
+                title="Daily cost"
+                meta={`${formatCurrency(dashboard.metrics.usage.totalCost)} total`}
+              />
+              <div className="usage-bars" aria-label="Daily usage cost">
+                {dashboard.metrics.dailyBuckets.length > 0 ? (
+                  dashboard.metrics.dailyBuckets.slice(-14).map((bucket) => (
+                    <div key={bucket.day} className="usage-bar">
+                      <span style={{ height: `${Math.max(8, (bucket.costUsd / dailyMax) * 100)}%` }} />
+                      <small>{bucket.day.slice(5)}</small>
+                    </div>
+                  ))
+                ) : (
+                  <div className="dashboard-empty-line">usage appears after azraj answers texts.</div>
+                )}
+              </div>
+            </section>
+          )}
+
+          <div className="dashboard-main">
+            {(view === "overview" || view === "messages") && (
+              <DashboardMessages
+                messages={dashboard.recentMessages}
+                newestMessage={newestMessage}
+                expanded={view === "messages"}
+              />
+            )}
+
+            {(view === "overview" || view === "memory") && (
+              <DashboardMemory memories={dashboard.memories} expanded={view === "memory"} />
+            )}
+
+            {(view === "overview" || view === "checkins") && (
+              <DashboardAutomations
+                automations={dashboard.automations}
+                enabledCount={dashboard.metrics.automations.enabled}
+              />
+            )}
+
+            {view === "usage" && (
+              <section className="dashboard-panel">
+                <PanelHeader eyebrow="tokens" title="Breakdown" meta="current account" />
+                <div className="usage-breakdown">
+                  <MetricCard
+                    label="input"
+                    value={formatNumber(dashboard.metrics.usage.inputTokens)}
+                    detail="tokens"
+                  />
+                  <MetricCard
+                    label="output"
+                    value={formatNumber(dashboard.metrics.usage.outputTokens)}
+                    detail="tokens"
+                  />
+                  <MetricCard
+                    label="agents"
+                    value={formatNumber(dashboard.metrics.agents.total)}
+                    detail={`${dashboard.metrics.agents.running} running`}
+                  />
                 </div>
-              ))
-            ) : (
-              <div className="dashboard-empty-line">usage appears after azraj answers texts.</div>
+              </section>
             )}
           </div>
-        </section>
+        </main>
+      </div>
+    </section>
+  );
+}
 
-        <section className="dashboard-panel">
-          <div className="dashboard-panel-head">
-            <div>
-              <p>latest thread</p>
-              <h2>messages</h2>
-            </div>
-            <span>{newestMessage ? new Date(newestMessage.createdAt).toLocaleDateString() : "none yet"}</span>
-          </div>
-          <div className="dashboard-thread">
-            {dashboard.recentMessages.length > 0 ? (
-              dashboard.recentMessages.slice(0, 8).map((message) => (
-                <article key={message._id} data-role={message.role}>
-                  <span>{message.role}</span>
-                  <p>{message.content}</p>
-                </article>
-              ))
-            ) : (
-              <div className="dashboard-empty-line">text azraj once and your thread shows here.</div>
-            )}
-          </div>
-        </section>
+function PanelHeader({ eyebrow, title, meta }: { eyebrow: string; title: string; meta: string }) {
+  return (
+    <div className="dashboard-panel-head">
+      <div>
+        <p>{eyebrow}</p>
+        <h2>{title}</h2>
+      </div>
+      <span>{meta}</span>
+    </div>
+  );
+}
 
-        <section className="dashboard-panel">
-          <div className="dashboard-panel-head">
-            <div>
-              <p>store</p>
-              <h2>memory</h2>
-            </div>
-            <span>{dashboard.memories.length} shown</span>
-          </div>
-          <div className="memory-list">
-            {dashboard.memories.length > 0 ? (
-              dashboard.memories.slice(0, 8).map((memory) => (
-                <article key={memory._id}>
-                  <div>
-                    <span>{memory.tier}</span>
-                    <span>{memory.segment}</span>
-                  </div>
-                  <p>{memory.content}</p>
-                </article>
-              ))
-            ) : (
-              <div className="dashboard-empty-line">
-                new memories from your verified conversation will show here.
+function DashboardMessages({
+  messages,
+  newestMessage,
+  expanded,
+}: {
+  messages: PublicDashboard["recentMessages"];
+  newestMessage: PublicDashboard["recentMessages"][number] | undefined;
+  expanded: boolean;
+}) {
+  return (
+    <section className={`dashboard-panel ${expanded ? "dashboard-panel-wide" : ""}`}>
+      <PanelHeader
+        eyebrow="latest thread"
+        title="Messages"
+        meta={newestMessage ? new Date(newestMessage.createdAt).toLocaleDateString() : "none yet"}
+      />
+      <div className="dashboard-thread">
+        {messages.length > 0 ? (
+          messages.slice(0, expanded ? 20 : 8).map((message) => (
+            <article key={message._id} data-role={message.role}>
+              <span>{message.role}</span>
+              <p>{message.content}</p>
+              <small>{new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small>
+            </article>
+          ))
+        ) : (
+          <div className="dashboard-empty-line">text azraj once and your thread shows here.</div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function DashboardMemory({
+  memories,
+  expanded,
+}: {
+  memories: PublicDashboard["memories"];
+  expanded: boolean;
+}) {
+  return (
+    <section className={`dashboard-panel ${expanded ? "dashboard-panel-wide" : ""}`}>
+      <PanelHeader eyebrow="store" title="Memory" meta={`${memories.length} shown`} />
+      <div className="memory-list">
+        {memories.length > 0 ? (
+          memories.slice(0, expanded ? 30 : 8).map((memory) => (
+            <article key={memory._id}>
+              <div>
+                <span>{memory.tier}</span>
+                <span>{memory.segment}</span>
               </div>
-            )}
+              <p>{memory.content}</p>
+            </article>
+          ))
+        ) : (
+          <div className="dashboard-empty-line">
+            new memories from your verified conversation will show here.
           </div>
-        </section>
+        )}
+      </div>
+    </section>
+  );
+}
 
-        <section className="dashboard-panel">
-          <div className="dashboard-panel-head">
-            <div>
-              <p>rhythm</p>
-              <h2>check-ins</h2>
-            </div>
-            <span>{dashboard.metrics.automations.enabled} active</span>
-          </div>
-          <div className="automation-list">
-            {dashboard.automations.length > 0 ? (
-              dashboard.automations.map((automation) => (
-                <article key={automation._id}>
-                  <div>
-                    <strong>{automation.name}</strong>
-                    <span>{automation.enabled ? "active" : "paused"}</span>
-                  </div>
-                  <p>{automation.schedule}{automation.timezone ? ` · ${automation.timezone}` : ""}</p>
-                </article>
-              ))
-            ) : (
-              <div className="dashboard-empty-line">
-                ask azraj to check in daily, tonight, or every week.
+function DashboardAutomations({
+  automations,
+  enabledCount,
+}: {
+  automations: PublicDashboard["automations"];
+  enabledCount: number;
+}) {
+  return (
+    <section className="dashboard-panel">
+      <PanelHeader eyebrow="rhythm" title="Check-ins" meta={`${enabledCount} active`} />
+      <div className="automation-list">
+        {automations.length > 0 ? (
+          automations.map((automation) => (
+            <article key={automation._id}>
+              <div>
+                <strong>{automation.name}</strong>
+                <span>{automation.enabled ? "active" : "paused"}</span>
               </div>
-            )}
+              <p>{automation.schedule}{automation.timezone ? ` · ${automation.timezone}` : ""}</p>
+            </article>
+          ))
+        ) : (
+          <div className="dashboard-empty-line">
+            ask azraj to check in daily, tonight, or every week.
           </div>
-        </section>
+        )}
       </div>
     </section>
   );
