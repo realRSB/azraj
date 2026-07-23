@@ -445,6 +445,22 @@ export async function renameConnection(connectionId: string, alias: string): Pro
   await composio.connectedAccounts.update(connectionId, { alias });
 }
 
+export class ComposioKeyPermissionError extends Error {
+  constructor(
+    public readonly slug: string,
+    public readonly underlying: string,
+  ) {
+    super(
+      `Your Composio API key can't create an auth config for "${slug}" — it has read-only access to auth_configs. ` +
+        `Fix one of two ways: (1) grant the key "auth_configs: write" in the Composio Dashboard → Settings → API Keys ` +
+        `(or use the project's default key) and update COMPOSIO_API_KEY in .env.local, or ` +
+        `(2) keep the read-only key and create the auth config manually: Dashboard → Toolkits → ${slug} → Add to project. ` +
+        `https://dashboard.composio.dev`,
+    );
+    this.name = "ComposioKeyPermissionError";
+  }
+}
+
 export class ComposioNeedsAuthConfigError extends Error {
   constructor(
     public readonly slug: string,
@@ -489,6 +505,13 @@ export async function authorizeToolkit(
       const status = (err as { status?: number })?.status;
       if (status === 400) {
         throw new ComposioNeedsAuthConfigError(slug, String(err));
+      }
+      // 403 means the API key itself lacks "auth_configs" write permission —
+      // creating a config can never succeed until the key is fixed (or the
+      // config is created by hand in the dashboard, which the read path above
+      // will then pick up).
+      if (status === 403) {
+        throw new ComposioKeyPermissionError(slug, String(err));
       }
       throw err;
     }
