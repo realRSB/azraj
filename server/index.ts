@@ -31,6 +31,8 @@ import {
   setRuntimeProvider,
 } from "./runtime-config.js";
 import { startImageCleanup } from "./images/clean.js";
+import { startStreakLoop } from "./streak/service.js";
+import { createStreakRouter } from "./streak-routes.js";
 import { isPublicServerRequest, isTrustedLocalRequest } from "./local-access.js";
 
 async function main() {
@@ -40,6 +42,9 @@ async function main() {
   startHeartbeatLoop();
   startConsolidationLoop();
   startImageCleanup();
+  // Morning streak-card loop. Cheap gate (checks local hour + last-sent date)
+  // runs each minute; the render + MMS only fire once per user per morning.
+  startStreakLoop();
   // No-op when a paid embedding key is set; otherwise downloads/loads the
   // local BGE-large model in the background so the first user-facing
   // recall() doesn't pay the model-load cost.
@@ -140,6 +145,7 @@ async function main() {
   app.use("/browser", createBrowserRouter());
   app.use("/apple", createAppleRouter());
   app.use("/changelog", createChangelogRouter());
+  app.use("/streak", createStreakRouter());
 
   app.post("/agents/:id/cancel", (req, res) => {
     const ok = cancelAgent(req.params.id);

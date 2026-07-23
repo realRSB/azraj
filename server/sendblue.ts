@@ -120,6 +120,46 @@ export async function sendImessage(toNumber: string, text: string): Promise<void
   }
 }
 
+// Send an image (MMS) with an optional caption. `mediaUrl` must be publicly
+// reachable by Sendblue — we hand it a Convex storage URL. Unlike sendImessage
+// this is a single message (no chunking) since it carries one media item.
+export async function sendMms(
+  toNumber: string,
+  mediaUrl: string,
+  caption?: string,
+): Promise<boolean> {
+  const h = headers();
+  if (!h) {
+    console.warn("[sendblue] missing credentials — not sending MMS");
+    return false;
+  }
+  const from = normalizeE164(process.env.SENDBLUE_FROM_NUMBER);
+  if (!from) {
+    console.error("[sendblue] SENDBLUE_FROM_NUMBER is not set — cannot send MMS");
+    return false;
+  }
+  const content = caption ? redactPhoneNumbers(stripMarkdown(caption)) : "";
+  const res = await fetch(`${API_BASE}/send-message`, {
+    method: "POST",
+    headers: h,
+    body: JSON.stringify({
+      number: toNumber,
+      from_number: from,
+      content,
+      media_url: mediaUrl,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    console.error(
+      `[sendblue] MMS send failed ${res.status}: ${redactPhoneNumbers(body).slice(0, 500)}`,
+    );
+    return false;
+  }
+  console.log(`[sendblue] → sent MMS to ${redactContactHandle(toNumber)}`);
+  return true;
+}
+
 export async function sendTypingIndicator(toNumber: string): Promise<void> {
   const h = headers();
   if (!h) return;

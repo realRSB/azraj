@@ -9,6 +9,7 @@
   "scripts": {
     "setup": "tsx scripts/setup.ts",
     "sendblue:sync": "node scripts/sendblue-sync.mjs",
+    "streak:backgrounds": "node scripts/fetch-streak-backgrounds.mjs",
     "sendblue:webhook": "node scripts/sendblue-webhook.mjs",
     "sendblue:webhook:check": "node scripts/sendblue-webhook.mjs --check",
     "preflight": "node scripts/preflight.mjs",
