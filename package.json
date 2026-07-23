@@ -61,5 +61,11 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "allowScripts": {
+    "agent-browser@0.26.0": true,
+    "better-sqlite3@12.9.0": true,
+    "esbuild@0.27.0": true,
+    "esbuild@0.25.12": true
   }
 }

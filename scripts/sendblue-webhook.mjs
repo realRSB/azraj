@@ -43,7 +43,8 @@ function hasBinary(name) {
 
 function runCapture(cmd, args) {
   return new Promise((ok, fail) => {
-    const p = spawn(cmd, args, { cwd: root });
+    // shell:true on Windows so `npx`/`sendblue` .cmd shims resolve.
+    const p = spawn(cmd, args, { cwd: root, shell: process.platform === "win32" });
     let out = "";
     p.stdout.on("data", (d) => (out += d.toString()));
     p.stderr.on("data", () => {});
@@ -69,7 +70,8 @@ function parseWebhookLines(output) {
   return hooks;
 }
 
-const STALE_DOMAIN_RE = /(ngrok-free\.app|ngrok\.app|trycloudflare\.com|loca\.lt)/;
+const STALE_DOMAIN_RE =
+  /(ngrok-free\.(app|dev)|ngrok\.(app|dev)|trycloudflare\.com|loca\.lt)/;
 
 async function main() {
   const url = process.argv[2];

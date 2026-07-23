@@ -77,10 +77,18 @@ const NOISE_TRIGGERS = [
 ];
 const STACK_LINE = /^\s+at\s/;
 
+// Windows can't spawn `npx`/`ngrok` bare (they're .cmd shims) — route
+// through the shell there. Args here never contain spaces, so this is safe.
+const isWin = process.platform === "win32";
+
 function run(name, cmd, args, readyPattern) {
   const child = spawn(cmd, args, {
     cwd: root,
     env: { ...process.env, FORCE_COLOR: "1" },
+    shell: isWin,
+    // Children never need our stdin; leaving it as an open pipe makes
+    // tsx's watch-mode keypress listener hang on Windows.
+    stdio: ["ignore", "pipe", "pipe"],
   });
   const prefix = `${C[name]}${name.padEnd(6)}${C.reset} │ `;
   let buf = "";
@@ -253,6 +261,7 @@ async function autoRegisterComposioWebhook(publicUrl) {
   const child = spawn("npx", ["tsx", "scripts/composio-webhook.ts", publicUrl], {
     cwd: root,
     env: { ...process.env },
+    shell: isWin,
   });
   child.stdout.on("data", (d) => {
     for (const line of d.toString().split("\n")) {
