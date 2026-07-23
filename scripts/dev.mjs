@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// One command to run Boop locally: server + convex + debug dashboard + ngrok.
+// One command to run Azraj locally: server + convex + debug dashboard + ngrok.
 // Prefixes each child's output so you can tell who's saying what.
 
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,6 +43,24 @@ const publicUrl = envVars.PUBLIC_URL || "";
 const hasStaticUrl =
   publicUrl && !publicUrl.includes("localhost") && !publicUrl.includes("127.0.0.1");
 const useNgrok = !hasStaticUrl || Boolean(ngrokDomain);
+let convexEnvFile = null;
+
+function writeConvexDevEnvFile() {
+  const convexUrl = envVars.VITE_CONVEX_URL || envVars.CONVEX_URL;
+  const lines = [];
+  if (envVars.CONVEX_DEPLOYMENT) {
+    lines.push(`CONVEX_DEPLOYMENT=${envVars.CONVEX_DEPLOYMENT}`);
+  }
+  if (convexUrl) {
+    // Convex CLI warns when both CONVEX_URL and VITE_CONVEX_URL are active.
+    // The debug UI is Vite-based, and the server falls back to this value.
+    lines.push(`VITE_CONVEX_URL=${convexUrl}`);
+  }
+  if (!lines.length) return null;
+  const path = resolve(tmpdir(), `boop-convex-${process.pid}.env.local`);
+  writeFileSync(path, lines.join("\n") + "\n");
+  return path;
+}
 
 // --- binary detection ---------------------------------------------------
 function hasBinary(name) {
@@ -51,6 +70,28 @@ function hasBinary(name) {
     child.on("exit", (code) => ok(code === 0));
     child.on("error", () => ok(false));
   });
+}
+
+const nodeCmd = process.env.BOOP_NODE_CMD || "node";
+
+const packageBinPaths = {
+  convex: ["convex", "bin", "main.js"],
+  tsx: ["tsx", "dist", "cli.mjs"],
+  vite: ["vite", "bin", "vite.js"],
+};
+
+function localBin(name) {
+  const ext = process.platform === "win32" ? ".cmd" : "";
+  const binPath = resolve(root, "node_modules", ".bin", `${name}${ext}`);
+  if (existsSync(binPath)) return { cmd: binPath, args: [] };
+
+  const packageBin = packageBinPaths[name];
+  if (packageBin) {
+    const scriptPath = resolve(root, "node_modules", ...packageBin);
+    if (existsSync(scriptPath)) return { cmd: nodeCmd, args: [scriptPath] };
+  }
+
+  return { cmd: name, args: [] };
 }
 
 // --- color-prefixed child runner ----------------------------------------
@@ -64,6 +105,11 @@ const C = {
   dim: "\x1b[2m",
   reset: "\x1b[0m",
 };
+let dashboardUrl = "http://localhost:5173";
+let resolveNgrokOutputUrl;
+const ngrokOutputUrlReady = new Promise((resolve) => {
+  resolveNgrokOutputUrl = resolve;
+});
 
 // Vite's http-proxy attaches its own socket error logger that can't be removed
 // via configure(). EPIPE on WS reconnects is harmless — filter it at the
@@ -104,6 +150,16 @@ function run(name, cmd, args, readyPattern) {
 
       // ANSI-strip for matching without disturbing the display output.
       const plain = line.replace(/\x1b\[[0-9;]*m/g, "");
+      if (name === "debug") {
+        const localMatch = plain.match(/Local:\s+(http:\/\/\S+)/);
+        if (localMatch) dashboardUrl = localMatch[1].replace(/\/$/, "");
+      }
+      if (name === "ngrok") {
+        const urlMatch =
+          plain.match(/\burl=(https:\/\/\S+)/) ||
+          plain.match(/Forwarding\s+(https:\/\/\S+)/);
+        if (urlMatch) resolveNgrokOutputUrl(urlMatch[1].replace(/\/$/, ""));
+      }
 
       if (NOISE_TRIGGERS.some((r) => r.test(plain))) {
         suppressing = true;
@@ -125,28 +181,36 @@ function run(name, cmd, args, readyPattern) {
 }
 
 // --- ngrok URL banner: poll local API after launch ----------------------
-async function waitForNgrokUrl(timeoutMs = 15000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch("http://127.0.0.1:4040/api/tunnels");
-      if (res.ok) {
-        const data = await res.json();
-        const https = data.tunnels?.find((t) => t.proto === "https")?.public_url;
-        if (https) return https;
-      }
-    } catch {
-      /* not up yet */
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function readNgrokUrl() {
+  try {
+    const res = await fetch("http://127.0.0.1:4040/api/tunnels");
+    if (res.ok) {
+      const data = await res.json();
+      return data.tunnels?.find((t) => t.proto === "https")?.public_url ?? null;
     }
-    await new Promise((r) => setTimeout(r, 500));
+  } catch {
+    /* not up yet */
   }
   return null;
 }
 
-function showBanner(url, stable) {
+async function waitForNgrokUrl(timeoutMs = 15000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const https = await readNgrokUrl();
+    if (https) return https;
+    await sleep(500);
+  }
+  return null;
+}
+
+function showBanner(url, stable, webhookSyncState) {
   const line = "═".repeat(68);
   const webhook = `${url}/sendblue/webhook`;
-  const dashboard = `http://localhost:5173`;
   const from = envVars.SENDBLUE_FROM_NUMBER;
   const fromLine = from
     ? `  📱 Text this Sendblue number:  ${from}  (from a DIFFERENT phone)`
@@ -154,24 +218,23 @@ function showBanner(url, stable) {
 
   const headline = stable
     ? `your STABLE public URL is live.`
-    : `ngrok tunnel is live  (webhook auto-registered with Sendblue).`;
-  const footer = stable
-    ? ``
-    : `\n${C.dim}  ℹ The inbound webhook above was registered with Sendblue automatically.
-    Set SENDBLUE_AUTO_WEBHOOK=false in .env.local to disable, or pick a
-    stable URL (ngrok paid / Cloudflare Tunnel) via \`npm run setup\`.${C.reset}\n`;
-  const guide = stable
-    ? `\n  → First time? Sendblue dashboard → API Settings → Webhook\n    Configuration → add ${webhook} as INBOUND MESSAGE.\n`
-    : ``;
+    : `ngrok tunnel is live.`;
+  const footerMessage =
+    webhookSyncState === "synchronized"
+      ? "The inbound webhook above was synchronized with Sendblue automatically."
+      : webhookSyncState === "disabled"
+        ? "Automatic Sendblue webhook sync is disabled. Run npm run sendblue:webhook -- <url> after changing the public URL."
+        : "Sendblue webhook sync failed. Check the webhook log above, then run npm run sendblue:webhook:check.";
+  const footer = `\n${C.dim}  ℹ ${footerMessage}${C.reset}\n`;
 
   console.log(`
 ${C.banner}${line}
-  Boop is ready — ${headline}
+  Azraj is ready — ${headline}
 
-  🐶 Debug dashboard (click me):   ${dashboard}
+  Debug dashboard (click me):      ${dashboardUrl}
   🌐 Public URL:                   ${url}
   📮 Sendblue webhook (inbound):   ${webhook}
-${fromLine}${guide}
+${fromLine}
 ${line}${C.reset}${footer}`);
 }
 
@@ -192,31 +255,37 @@ ${C.dim}  Install:   brew install ngrok         (macOS)
   }
 }
 
-console.log(`\nBoop dev starting on port ${port}. Ctrl-C to stop everything.\n`);
+console.log(`\nAzraj dev starting on port ${port}. Ctrl-C to stop everything.\n`);
 
 // Background "new-version available?" check. Runs concurrently with the
 // child services; output is prefixed with `upstream │ ` by run() so it
 // won't collide with startup logs. Silent on the happy path. Not added to
 // the `children` array because it exits on its own — we don't want its
 // non-zero exit (which shouldn't happen but hedge anyway) to tear down dev.
-run("upstream", "node", ["scripts/check-upstream.mjs"]);
+run("upstream", nodeCmd, ["scripts/check-upstream.mjs"]);
 
+const tsxBin = localBin("tsx");
 const serverChild = run(
   "server",
-  "npx",
-  ["tsx", "watch", "server/index.ts"],
+  tsxBin.cmd,
+  [...tsxBin.args, "watch", "server/index.ts"],
   /listening on :/,
 );
+convexEnvFile = writeConvexDevEnvFile();
+const convexArgs = ["convex", "dev"];
+if (convexEnvFile) convexArgs.push("--env-file", convexEnvFile);
+const convexBin = localBin("convex");
 const convexChild = run(
   "convex",
-  "npx",
-  ["convex", "dev"],
+  convexBin.cmd,
+  [...convexBin.args, ...convexArgs.slice(1)],
   /Convex functions ready/,
 );
+const viteBin = localBin("vite");
 const debugChild = run(
   "debug",
-  "npx",
-  ["vite", "--config", "debug/vite.config.ts"],
+  viteBin.cmd,
+  [...viteBin.args, "--config", "debug/vite.config.ts"],
   /Local:\s+http/,
 );
 const children = [serverChild, convexChild, debugChild];
@@ -228,16 +297,19 @@ if (useNgrok && ngrokInstalled) {
     : ["http", port, "--log=stdout", "--log-format=term", "--log-level=info"];
   const ngrokChild = run("ngrok", "ngrok", args);
   children.push(ngrokChild);
-  ngrokUrlReady = waitForNgrokUrl().catch(() => null);
+  ngrokUrlReady = Promise.race([
+    ngrokOutputUrlReady,
+    new Promise((resolve) => setTimeout(() => resolve(null), 10000)),
+  ]).then((url) => url ?? waitForNgrokUrl().catch(() => null));
 }
 
 // Wait for all the core services to be ready before printing the banner,
 // so the URL isn't dangled in front of the user while Convex is still booting.
 async function autoRegisterWebhook(publicUrl) {
-  if (envVars.SENDBLUE_AUTO_WEBHOOK === "false") return;
+  if (envVars.SENDBLUE_AUTO_WEBHOOK === "false") return "disabled";
   const webhookUrl = `${publicUrl}/sendblue/webhook`;
   const prefix = `${C.ngrok}webhook${C.reset} │ `;
-  const child = spawn("node", ["scripts/sendblue-webhook.mjs", webhookUrl], {
+  const child = spawn(nodeCmd, ["scripts/sendblue-webhook.mjs", webhookUrl], {
     cwd: root,
     env: { ...process.env },
   });
@@ -251,14 +323,40 @@ async function autoRegisterWebhook(publicUrl) {
       if (line.trim()) process.stdout.write(prefix + line + "\n");
     }
   });
-  await new Promise((r) => child.on("exit", r));
+  const code = await new Promise((resolve) => child.on("exit", resolve));
+  return code === 0 ? "synchronized" : "failed";
+}
+
+let sendblueWebhookRegistrationUrl = "";
+let sendblueWebhookRegistration = Promise.resolve();
+function registerSendblueWebhookOnce(publicUrl) {
+  if (sendblueWebhookRegistrationUrl === publicUrl) return sendblueWebhookRegistration;
+  sendblueWebhookRegistrationUrl = publicUrl;
+  sendblueWebhookRegistration = sendblueWebhookRegistration.then(() =>
+    autoRegisterWebhook(publicUrl),
+  );
+  return sendblueWebhookRegistration;
+}
+
+async function registerSendblueWhenTunnelAppears() {
+  await sleep(2500);
+  const start = Date.now();
+  while (Date.now() - start < 60000) {
+    const publicUrl = await readNgrokUrl();
+    if (publicUrl) {
+      await registerSendblueWebhookOnce(publicUrl);
+      return;
+    }
+    await sleep(1000);
+  }
 }
 
 async function autoRegisterComposioWebhook(publicUrl) {
   if (envVars.COMPOSIO_AUTO_WEBHOOK === "false") return;
   if (!envVars.COMPOSIO_API_KEY) return;
   const prefix = `${C.ngrok}composio${C.reset} │ `;
-  const child = spawn("npx", ["tsx", "scripts/composio-webhook.ts", publicUrl], {
+  const tsxBin = localBin("tsx");
+  const child = spawn(tsxBin.cmd, [...tsxBin.args, "scripts/composio-webhook.ts", publicUrl], {
     cwd: root,
     env: { ...process.env },
     shell: isWin,
@@ -276,6 +374,10 @@ async function autoRegisterComposioWebhook(publicUrl) {
   await new Promise((r) => child.on("exit", r));
 }
 
+if (useNgrok && ngrokInstalled && !ngrokDomain) {
+  registerSendblueWhenTunnelAppears().catch(() => {});
+}
+
 Promise.all([
   serverChild.ready,
   convexChild.ready,
@@ -285,30 +387,32 @@ Promise.all([
   .then(async ([, , , ngrokUrl]) => {
     if (useNgrok && ngrokInstalled) {
       if (ngrokUrl) {
-        // Only auto-register for ephemeral ngrok URLs. Reserved domains and
-        // static URLs are already fixed in the Sendblue dashboard.
-        if (!ngrokDomain) {
-          await autoRegisterWebhook(ngrokUrl);
-        }
+        // Synchronize both the URL and signing secret. This is required even
+        // for a reserved domain because older dashboard-created webhooks may
+        // not have Boop's signing secret yet.
+        const webhookSyncState = await registerSendblueWebhookOnce(
+          (await readNgrokUrl()) ?? ngrokUrl,
+        );
         // Composio webhook subscription is fully programmatic (PATCHable),
         // so we can refresh it on every restart regardless of whether the
         // domain is reserved.
         await autoRegisterComposioWebhook(ngrokUrl);
-        showBanner(ngrokUrl, Boolean(ngrokDomain));
+        showBanner(ngrokUrl, Boolean(ngrokDomain), webhookSyncState);
       } else {
         console.log(
           `${C.ngrok}ngrok${C.reset} │ could not read tunnel URL from http://127.0.0.1:4040 — check ngrok output above.`,
         );
       }
     } else if (hasStaticUrl) {
-      showBanner(publicUrl, true);
+      const webhookSyncState = await registerSendblueWebhookOnce(publicUrl);
+      showBanner(publicUrl, true, webhookSyncState);
     } else {
       const line = "═".repeat(68);
       console.log(`
 ${C.banner}${line}
-  Boop is running locally.
+  Azraj is running locally.
 
-  🐶 Debug dashboard:   http://localhost:5173
+  Debug dashboard:      ${dashboardUrl}
 
   ⚠ No public tunnel configured. iMessage won't work until you expose
     the server. Use the Chat tab in the dashboard to test for now.
@@ -322,6 +426,13 @@ let shuttingDown = false;
 const shutdown = (code = 0) => {
   if (shuttingDown) return;
   shuttingDown = true;
+  if (convexEnvFile) {
+    try {
+      unlinkSync(convexEnvFile);
+    } catch {
+      /* ignore */
+    }
+  }
   for (const c of children) {
     try {
       c.kill();

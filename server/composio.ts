@@ -1,7 +1,10 @@
 import { Composio } from "@composio/core";
+import { Composio as ComposioApiClient } from "@composio/client";
 import { ClaudeAgentSDKProvider } from "@composio/claude-agent-sdk";
 import { createSdkMcpServer, type McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { IntegrationModule } from "./integrations/registry.js";
+import { formatError } from "./error-format.js";
+import { runtimeText, type RuntimeTool } from "./runtimes/types.js";
 
 export type ToolkitAuthMode = "managed" | "byo";
 
@@ -43,6 +46,8 @@ export const CURATED_TOOLKITS: CuratedToolkit[] = [
   { slug: "salesforce", displayName: "Salesforce", authMode: "managed" },
   { slug: "twitter", displayName: "Twitter / X", authMode: "byo" },
   { slug: "linkedin", displayName: "LinkedIn", authMode: "managed" },
+  { slug: "instagram", displayName: "Instagram", authMode: "managed" },
+  { slug: "youtube", displayName: "YouTube", authMode: "managed" },
 ];
 
 const DISPLAY_NAME_BY_SLUG = new Map(CURATED_TOOLKITS.map((t) => [t.slug, t.displayName]));
@@ -102,30 +107,67 @@ export interface ToolSummary {
   description?: string;
 }
 
+export interface ToolkitCatalogPage {
+  items: Array<{
+    slug: string;
+    name: string;
+    meta?: {
+      logo?: string | null;
+      description?: string | null;
+      tools_count?: number;
+    };
+  }>;
+  nextCursor?: string | null;
+}
+
+export async function collectToolkitCatalog(
+  fetchPage: (cursor?: string) => Promise<ToolkitCatalogPage>,
+): Promise<Map<string, ToolkitMeta>> {
+  const out = new Map<string, ToolkitMeta>();
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+
+  while (true) {
+    const page = await fetchPage(cursor);
+    for (const item of page.items) {
+      out.set(item.slug, {
+        slug: item.slug,
+        name: item.name,
+        logo: item.meta?.logo ?? undefined,
+        description: item.meta?.description ?? undefined,
+        toolsCount: item.meta?.tools_count,
+      });
+    }
+
+    const nextCursor = page.nextCursor ?? undefined;
+    if (!nextCursor) break;
+    if (seenCursors.has(nextCursor)) {
+      throw new Error("Composio toolkit catalog returned a repeated cursor");
+    }
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+
+  return out;
+}
+
 // Composio's toolkit catalog rarely changes; cache the full list for the life of the process.
+const TOOLKIT_META_PAGE_LIMIT = 1000;
 let toolkitMetaCache: Promise<Map<string, ToolkitMeta>> | null = null;
 
 async function fetchAllToolkitMeta(): Promise<Map<string, ToolkitMeta>> {
   const composio = getComposio();
   if (!composio) return new Map();
-  const out = new Map<string, ToolkitMeta>();
-  const resp = await composio.toolkits.get({ limit: 500 });
-  const items = Array.isArray(resp)
-    ? resp
-    : ((resp as { items?: unknown[] }).items ?? []);
-  for (const it of items as Array<{
-    slug: string;
-    name: string;
-    meta?: { logo?: string; description?: string; toolsCount?: number };
-  }>) {
-    out.set(it.slug, {
-      slug: it.slug,
-      name: it.name,
-      logo: it.meta?.logo,
-      description: it.meta?.description,
-      toolsCount: it.meta?.toolsCount,
+  const apiKey = process.env.COMPOSIO_API_KEY!;
+  const catalogClient = new ComposioApiClient({ apiKey });
+  const out = await collectToolkitCatalog(async (cursor) => {
+    const page = await catalogClient.toolkits.list({
+      limit: TOOLKIT_META_PAGE_LIMIT,
+      sort_by: "alphabetically",
+      ...(cursor ? { cursor } : {}),
     });
-  }
+    return { items: page.items, nextCursor: page.next_cursor };
+  });
   // Backfill any curated toolkits the list endpoint omitted (e.g. MCP-only
   // toolkits like granola_mcp that don't appear in the paginated catalog).
   await Promise.all(
@@ -572,6 +614,120 @@ export function buildComposioIntegrationModule(slug: string): IntegrationModule 
         tools,
       });
     },
+    createTools: async (): Promise<RuntimeTool[]> => {
+      const composio = getComposio();
+      if (!composio) {
+        throw new Error(`[composio] cannot build ${slug} — COMPOSIO_API_KEY not set`);
+      }
+      const active = (await listConnectedToolkits()).filter(
+        (c) => c.slug === slug && c.status === "ACTIVE",
+      );
+      const rawTools = await composio.tools.getRawComposioTools({
+        toolkits: [slug],
+        limit: 500,
+      });
+
+      const accountHint = active
+        .map(
+          (c) =>
+            `${c.connectionId} (${c.accountLabel ?? c.accountEmail ?? c.alias ?? "unknown account"})`,
+        )
+        .join(", ");
+
+      return rawTools.map((rawTool: any): RuntimeTool => {
+        const toolName = String(rawTool.slug ?? rawTool.name);
+        const baseSchema =
+          rawTool.inputParameters ??
+          rawTool.parameters ??
+          rawTool.input_schema ??
+          rawTool.schema ?? {
+            type: "object",
+            properties: {},
+            additionalProperties: true,
+          };
+        const jsonSchema = withConnectedAccountSchema(baseSchema, active.length);
+        const description = [
+          String(rawTool.description ?? rawTool.name ?? toolName),
+          active.length >= 2
+            ? `Multiple ${slug} accounts are connected. The connectedAccountId field is required. Available accounts: ${accountHint}.`
+            : active.length === 1
+              ? `Uses connected account ${accountHint}.`
+              : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+
+        return {
+          namespace: slug,
+          name: toolName,
+          description,
+          inputSchema: {},
+          jsonSchema,
+          handle: async (args: Record<string, unknown>) => {
+            try {
+              const toolArgs = { ...args };
+              const explicitAccountId =
+                typeof toolArgs.connectedAccountId === "string"
+                  ? toolArgs.connectedAccountId
+                  : typeof toolArgs.connected_account_id === "string"
+                    ? toolArgs.connected_account_id
+                    : undefined;
+              delete toolArgs.connectedAccountId;
+              delete toolArgs.connected_account_id;
+
+              const connectedAccountId =
+                explicitAccountId ?? (active.length === 1 ? active[0]?.connectionId : undefined);
+              if (active.length >= 2 && !connectedAccountId) {
+                return runtimeText(
+                  `Choose a connectedAccountId before calling ${toolName}. Available accounts: ${accountHint}.`,
+                  false,
+                );
+              }
+
+              const result = await composio.tools.execute(toolName, {
+                userId: boopUserId(),
+                arguments: toolArgs,
+                ...(connectedAccountId ? { connectedAccountId } : {}),
+                dangerouslySkipVersionCheck: true,
+              });
+              return runtimeText(
+                JSON.stringify(result, null, 2),
+                Boolean((result as { successful?: boolean })?.successful ?? true),
+              );
+            } catch (err) {
+              return runtimeText(formatError(err), false);
+            }
+          },
+        };
+      });
+    },
+  };
+}
+
+function withConnectedAccountSchema(schema: unknown, activeCount: number): Record<string, unknown> {
+  const base: Record<string, unknown> =
+    schema && typeof schema === "object" && !Array.isArray(schema)
+      ? { ...(schema as Record<string, unknown>) }
+      : { type: "object" };
+  const properties =
+    base.properties && typeof base.properties === "object" && !Array.isArray(base.properties)
+      ? { ...(base.properties as Record<string, unknown>) }
+      : {};
+  if (activeCount >= 2) {
+    properties.connectedAccountId = {
+      type: "string",
+      description: "Composio connected account id to use for this call.",
+    };
+  }
+  const required = Array.isArray(base.required) ? [...base.required] : [];
+  if (activeCount >= 2 && !required.includes("connectedAccountId")) {
+    required.push("connectedAccountId");
+  }
+  return {
+    type: "object",
+    ...base,
+    properties,
+    ...(required.length ? { required } : {}),
   };
 }
 

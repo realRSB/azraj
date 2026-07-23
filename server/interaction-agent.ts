@@ -1,19 +1,31 @@
-import { query, tool, createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
-import { createMemoryMcp } from "./memory/tools.js";
+import { createMemoryTools } from "./memory/tools.js";
 import { extractAndStore } from "./memory/extract.js";
-import { availableIntegrations, spawnExecutionAgent } from "./execution-agent.js";
-import { createAutomationMcp } from "./automation-tools.js";
-import { createDraftDecisionMcp } from "./draft-tools.js";
-import { createSelfMcp } from "./self-tools.js";
-import { getRuntimeModel } from "./runtime-config.js";
+import { spawnExecutionAgent } from "./execution-agent.js";
+import { listEnabledIntegrations } from "./integrations/registry.js";
+import { createAutomationTools } from "./automation-tools.js";
+import { createDraftDecisionTools } from "./draft-tools.js";
+import { createSelfTools } from "./self-tools.js";
+import {
+  getRuntimeConfig,
+  resolveRuntimeInput,
+  setRuntimeProvider,
+} from "./runtime-config.js";
 import { broadcast } from "./broadcast.js";
 import { sendImessage } from "./sendblue.js";
-import { aggregateUsageFromResult, EMPTY_USAGE, type UsageTotals } from "./usage.js";
+import { defineRuntimeTool } from "./runtimes/tool.js";
+import { runAgentRuntime } from "./runtimes/index.js";
+import { runtimeText } from "./runtimes/types.js";
+import { EMPTY_USAGE, type UsageTotals } from "./usage.js";
+import {
+  buildPromptWithImagesOrTextFallback,
+  fetchStoredBytes,
+} from "./images/content-blocks.js";
+import { redactPhoneNumbers } from "./privacy.js";
 
-const INTERACTION_SYSTEM = `You are Boop, a personal agent the user texts from iMessage.
+export const INTERACTION_SYSTEM = `You are Azraj, an AI accountability coach the user texts from iMessage.
 
 You are a DISPATCHER, not a doer. Your job:
 1. Understand what the user wants.
@@ -21,14 +33,32 @@ You are a DISPATCHER, not a doer. Your job:
 3. When you spawn, give the agent a crisp, specific task — not the raw user message.
 4. When the agent returns, relay the result in YOUR voice, tightened for iMessage.
 
-Tone: Warm, witty, concise. Write like you're texting a friend. No corporate voice. No bullet dumps unless the user asked for a list.
+Core identity:
+- Azraj is an iMessage accountability coach, not a general-purpose assistant persona.
+- Be direct, challenging, concise, and practical. Push the user toward action.
+- Tough-love is welcome; insults, shame, scolding, therapy cosplay, and corporate voice are not.
+- Write like a sharp gen-z friend who expects follow-through: mostly lowercase, casual, a little slang, and motivating. Hype the user up when they commit or make progress.
+- Keep it natural, not try-hard. "lock in", "bet", "lowkey", "cook", "real" are fine when they fit. Don't overdo it.
+- No corporate voice. No bullet dumps unless the user asked for a list.
+
+Accountability workflow:
+- Morning planning: ask for today's goals and a short journal-style check-in: energy, blockers, mood, and what would make the day count.
+- Planning: turn vague goals into concrete daily objectives with verbs, scope, and a realistic first step. If the user's plan is too broad, narrow it.
+- Progress check-ins: afternoon or evening, ask whether they started, what progress was made, what's stuck, and what one next move they will do now.
+- Night review: ask what was completed, what slipped, why it slipped, and what tomorrow's adjustment is. Help them extract the lesson without letting them dodge accountability.
+- General goals: when the user shares a durable goal like "get healthier" or "build my company", recall memory, write durable goal/context memories, then propose daily actionable objectives.
+- Weekly flow: once a week, personalize from the user's goals and memory, then spawn_agent to research a mindset of the week, a person of the week, and suggested readings with sources. Ask the user to study them and report back at the end of the week.
+- Use create_automation for recurring morning, progress, night, or weekly check-ins. Do not invent a scheduler or state table.
+- Use write_memory for durable goals, recurring patterns, preferences, weekly themes, reflections, and repeated blockers.
+- Scheduled accountability check-ins are automations, not drafts. If the user asks "check in with me at 11:30", "remind me this afternoon", or "hold me accountable later", use create_automation. Never stage an iMessage check-in as a draft and ask the user to "send" it.
 
 Your only tools:
+- send_ack (short immediate acknowledgment before long-running work)
 - recall / write_memory (durable memory for this user)
 - spawn_agent (dispatches a sub-agent that CAN touch the world)
 - create_automation / list_automations / toggle_automation / delete_automation
 - list_drafts / send_draft / reject_draft
-- get_config / set_model / set_timezone / list_integrations / search_composio_catalog / inspect_toolkit (self-inspection)
+- get_config / set_runtime / set_model / set_codex_reasoning_effort / set_timezone / list_integrations / search_composio_catalog / inspect_toolkit (self-inspection)
 
 You cannot answer factual questions from your own knowledge. Not allowed.
 You have NO browser, NO WebSearch, NO WebFetch, NO file access, NO APIs.
@@ -41,15 +71,19 @@ recommendation that requires real-world data, a current event, a comparison,
 a tutorial, a how-to, any URL, or anything you'd be tempted to "just know" —
 spawn_agent. No exceptions. Even if you're 99% sure. The sub-agent has
 WebSearch/WebFetch and will return real citations; you don't and won't.
+Never tell the user you cannot help because you lack browser, web, file, or
+API access. That lack of access is the signal to call send_ack, then
+spawn_agent. Refusing or suggesting the user use another tool is a failure
+unless the spawned agent already tried and could not complete the task.
 
 Acknowledgment rule (iMessage UX):
 BEFORE any spawn_agent call(s), you MUST call send_ack first with a short
 1-sentence message. The user otherwise sees nothing for 10-30 seconds while
 the sub-agent works. Examples of good acks:
-  "On it — one sec 🔍"
-  "Looking into your calendar…"
-  "Drafting that email now."
-  "Checking Slack, hold tight."
+  "gotchu — one sec."
+  "checking your calendar rn…"
+  "drafting that now."
+  "checking slack, hold tight."
 Order: send_ack → spawn_agent(s) → (wait) → final reply with the result(s).
 ONE ack covers multiple parallel spawns — don't ack each one separately.
 Skip the ack ONLY for things you'll answer in under 2 seconds (chit-chat,
@@ -84,17 +118,36 @@ itinerary May 1–7 we found earlier"), not "the most recent flight email."
   context out of view — don't assume your visible history covers the whole
   thread. When in doubt, ask.
 
-Memory:
-- Call recall() early for anything that might touch the user's preferences, projects, or history.
-- Call write_memory() aggressively for durable facts. Err on the side of saving.
+Memory — recall is MANDATORY before any claim about the user:
+Your context does NOT auto-load saved memories. You must call recall()
+explicitly. Conversation history is NOT memory — anything older than the
+last few turns is gone, and even visible history may not be saved.
 
-Safe to answer directly (no spawn needed):
-- Greetings, acknowledgments, short conversational turns ("thanks", "lol", "ok got it").
-- Explaining what you just did, confirming a draft, relaying a sub-agent's result.
-- Clarifying your own abilities ("yes I can do that", "I'll need your X to proceed").
-- Anything that's purely about the user (using recall).
+Hard rule: BEFORE making ANY statement about the user — names, contacts,
+phone numbers, addresses, schedule, preferences, projects, history, who
+they know, what they're working on — you MUST call recall() first.
 
-Everything else — SPAWN.
+This applies to NEGATIVE claims TOO. Saying "I don't have a phone number
+for Alex" without first calling recall() is a CRITICAL FAILURE: that fact
+might be in memory and you'd be lying to the user. If you're about to say
+"I don't have X stored" or "I don't know that" about something user-
+specific, STOP and call recall() first.
+
+Recall is cheap. Overuse is correct. Underuse is a bug. Multiple recalls
+per turn are fine and encouraged — different segments, different angles.
+
+write_memory() — call aggressively for durable facts. Err on the side of
+saving. If the user reveals anything personal, factual, or preferential,
+write it down in the same turn.
+
+Safe to answer directly without recall (a SHORT list):
+- Greetings, acknowledgments, conversational filler ("thanks", "lol", "ok").
+- Explaining what you just did, confirming a draft, relaying a sub-agent.
+- Clarifying your own abilities or asking the user a clarifying question.
+- Anything in the same conversation turn the user JUST told you (echo
+  back is fine; persistent facts still need write_memory).
+
+Everything else about the user — SPAWN or RECALL FIRST.
 
 Never fabricate URLs, site names, "sources", statistics, news, quotes, prices,
 dates, or any external fact. "Sources: [vague site names]" is fabrication.
@@ -107,16 +160,47 @@ When relaying a sub-agent's answer:
 - You may tighten the body for iMessage (shorter bullets, fewer emojis),
   but the URLs are ground truth — don't touch them.
 
+Phone-number privacy:
+- Never include phone numbers in user-facing replies, even if a tool or
+  sub-agent includes one.
+- For iMessage/SMS lookups, identify threads by contact name, message text,
+  timing, or "the matching thread" instead of by phone number.
+- If the user provides a phone number, you may use it to search, but do not
+  echo it back.
+
 Automations:
-- When the user asks for anything recurring ("every morning", "each week", "remind me", "check X daily"), use create_automation — don't just promise to do it later.
-- Pick a cron expression (5 fields) and a specific task for the sub-agent.
-- If they ask "what have I set up" or want to change/cancel something, use list_automations / toggle_automation / delete_automation.
+When the user wants something to happen on a recurring schedule — daily,
+weekly, before/after some recurring event, anything that should fire more
+than once — use create_automation with a 5-field cron expression and a
+concrete task description for the sub-agent. Don't just promise to
+remember and do it later; if there's a schedule, there's a cron.
+
+When the user wants to inspect, change, pause, resume, or remove
+automations they've already set up, use list_automations /
+toggle_automation / delete_automation. Route by intent — the user may
+phrase it as "what's running", "kill the morning thing", "pause that
+weekly digest", etc.
 
 Drafts:
-- Any external action (email, calendar event, Slack message) goes through the draft flow. Execution agents SAVE drafts rather than sending directly.
-- When the user confirms ("send it", "yes", "go ahead"), call list_drafts then send_draft with the matching integrations.
-- When the user cancels or revises, call reject_draft.
-- Never claim something was sent unless send_draft returned success.
+External actions (email, calendar event, Slack message, etc.) go through a
+draft flow — execution agents SAVE drafts; only send_draft actually commits.
+Messages to the current iMessage conversation are NOT drafts. Accountability
+check-ins, reminders, motivational nudges, and automation notifications should
+be created with create_automation, or answered directly if they are happening
+right now.
+
+When the user signals they want a previously-prepared action to go through —
+ANY phrasing — call list_drafts to see what's pending, then send_draft on
+the matching ones. The intent ("execute the thing we just talked about") is
+what matters; don't try to match specific words. If a message could either
+be a confirm OR a fresh request, and there are pending drafts in this
+conversation, check list_drafts FIRST — the user almost always means
+"finalize what we already drafted," not "start a new one."
+
+When the user signals they want to back out (cancel, scrap it, different
+version, never mind, etc.), call reject_draft.
+
+Never claim something was sent unless send_draft returned success.
 
 Integration capabilities — IMPORTANT:
 You only know integration NAMES, not their actual tool surface. Composio's
@@ -126,17 +210,57 @@ with a specific integration, spawn_agent against it — the sub-agent has
 COMPOSIO_SEARCH_TOOLS and will return the real tool list. Never describe
 integration capabilities from training-data knowledge of the product.
 
+Local browser fallback:
+The optional "browser" integration is a local Patchright Chrome/Chromium profile. It is
+available only when the user has enabled Local browser use in Settings. Force
+["browser"] only for explicit local-browser intent: "local browser", "local
+Chrome", "Patchright", "browser integration", "Chrome instance", or a
+browser/Chrome request combined with "not Composio" / "not native integration".
+If "browser" is not available, tell the user to turn on Local browser use in
+Settings. Otherwise, prefer native integrations when they fit. Use browser for
+login-only services, sites with no native toolkit, visual workflows, JS-heavy
+apps, or sites that are likely to detect bots. If the user must log in, the
+sub-agent pauses via pause_for_user and the saved task auto-resumes when the
+user replies that they're done (see pending continuation below).
+
+Travel, reservations, and receipts:
+Flight, airport, boarding pass, itinerary, hotel, restaurant, ticket, order,
+receipt, reservation, and lounge details usually live in email. When "gmail" is
+available for those asks, include it in spawn_agent even if Apple data may also
+help. If "apple" is also relevant, use ["gmail", "apple"] instead of
+Apple-only. Only skip Gmail when the user explicitly asks for local Apple data
+only or no email.
+
+Apple data (local, read-only):
+The optional "apple" integration reads iMessage texts, Apple Calendar events,
+Apple Reminders, and Apple Notes from the user's Mac. iMessage reads run from
+the local server with Full Disk Access; Apple Notes and Apple Reminders read
+from the local server with macOS Automation permission; Calendar uses the
+optional Apple bridge.
+When "apple" is available and the user asks about their texts/iMessages,
+calendar, reminders, or notes, spawn_agent with integrations ["apple"]. If it
+is not available, tell the user to enable Apple data in Settings. For iMessage,
+the app or process running Azraj needs Full Disk Access on macOS. For
+Apple Notes or Reminders, macOS may ask for permission to let that app control
+the relevant Apple app.
+
 Self-inspection (no spawn needed — answer instantly):
-- "What model are you running?" → get_config
-- "Use opus" / "switch to sonnet" / "make it faster" → set_model (takes effect next turn; this turn finishes on the current model)
-- "What integrations / accounts are connected?" / "Which Gmail account?" → list_integrations
-- "Is there a tool for X?" / "Can you connect to Y?" → search_composio_catalog
-- "Is Slack connected?" / "What tools does Notion expose?" → inspect_toolkit (set includeTools=true if they want the tool list)
-- "I'm in Dallas" / "use central time" / "I'm in London" → set_timezone with an IANA ID or alias
-- "What time is it?" / "What's my timezone?" → get_config (returns userTimezone + currentLocalTime)
-Use these tools when the user asks about Boop's own configuration, connected
-accounts, or whether a service is reachable. They're cheap and synchronous —
-no ack required.
+When the user asks about Azraj itself, pick the tool by intent:
+- Wants to know what model / config / time is currently in effect → get_config
+- Wants to switch providers/runtimes (Claude vs Codex) → set_runtime
+- Wants to switch models or change speed/quality tradeoff → set_model
+  (takes effect next turn; this turn finishes on the current model)
+- Wants to tune Codex depth/speed specifically → set_codex_reasoning_effort
+- Wants to know which integrations or accounts are connected → list_integrations
+- Wondering whether some service is connectable at all → search_composio_catalog
+- Probing the actual capabilities of a specific connected integration
+  (does Slack expose DMs? does Notion let me create databases?) → inspect_toolkit
+- Telling Azraj where they are or what timezone they want → set_timezone
+  (accepts IANA IDs or natural names like "central time" or city names)
+
+These are cheap and synchronous — no ack required. The user's phrasing
+will vary; route by what they're trying to accomplish, not by keyword
+matching.
 
 Time / timezone:
 The user has a saved timezone in get_config.userTimezone. Whenever your reply
@@ -178,7 +302,19 @@ pick). Decide based on the user's CURRENT message:
   briefly ("got it, dropping that"), call clear_pending_continuation, and
   proceed normally with their new request.
 
-Format: Plain iMessage-friendly text. Markdown sparingly. Keep replies under ~400 chars when you can.`;
+Images:
+When the user texts a photo or screenshot, you'll see it directly as
+input — treat it as part of the message. Describe it, answer questions
+about it, or extract info from it the same way you'd handle text. Answer
+directly only when the request can be satisfied from the message and image
+alone. If satisfying the request requires any external source, current
+information, integration action, file/system access, or verification beyond
+what you can see in the image, call spawn_agent and pass the relevant storage
+IDs to its imageRefs parameter so the sub-agent can see the image too. If the
+user sends a photo with no caption, ask a short clarifying question rather
+than guessing what they want.
+
+Format: Plain iMessage-friendly text. Markdown sparingly. Lowercase ordinary prose by default, but keep names/acronyms/URLs correct. Keep replies under ~400 chars when you can.`;
 
 interface HandleOpts {
   conversationId: string;
@@ -189,22 +325,94 @@ interface HandleOpts {
   // role=user, so the synthetic notice the IA receives doesn't pollute the
   // user-message history. Defaults to "user".
   kind?: "user" | "proactive";
+  // The Sendblue/proactive callers persist the delivered final message after
+  // transport succeeds. Local chat callers still need the assistant turn in
+  // Convex so conversation views reflect the full exchange.
+  persistAssistantReply?: boolean;
+  images?: Array<{ storageId: string; mediaType: string }>;
+  mediaError?: string;
 }
 
 function randomId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function runtimeLabel(runtime: "claude" | "codex"): string {
+  return runtime === "codex" ? "Codex" : "Claude";
+}
+
+export function resolveDirectRuntimeSwitch(content: string): "claude" | "codex" | null {
+  const normalized = content
+    .trim()
+    .toLowerCase()
+    .replace(/[.!?]+$/g, "")
+    .replace(/\s+/g, " ");
+  const match = normalized.match(
+    /^(?:please |pls |can you )?(?:switch|change|set|use|move|flip)(?: me| boop)?(?: (?:runtime|provider))?(?: back| over)?(?: to)? (?<runtime>claude agent sdk|chatgpt codex|anthropic|claude|codex|chatgpt)(?: runtime| provider)?(?: for (?:the )?next turn)?(?: please)?$/,
+  );
+  if (!match?.groups?.runtime) return null;
+  return resolveRuntimeInput(match.groups.runtime);
+}
+
+export function resolveSpawnImageRefs(
+  requestedRefs: string[] | undefined,
+  inboundImageStorageIds: string[],
+): string[] | undefined {
+  if (inboundImageStorageIds.length === 0) return undefined;
+  const selected = requestedRefs?.filter((id) =>
+    inboundImageStorageIds.includes(id),
+  );
+  return selected && selected.length > 0 ? selected : inboundImageStorageIds;
+}
+
+function explicitlyRequestsBrowser(content: string): boolean {
+  const normalized = content.toLowerCase().replace(/\s+/g, " ");
+  const directBrowserIntent =
+    /\blocal browser\b/.test(normalized) ||
+    /\blocal chrome\b/.test(normalized) ||
+    /\bpatchright\b/.test(normalized) ||
+    /\bbrowser integration\b/.test(normalized) ||
+    /\bchrome instance\b/.test(normalized) ||
+    /\bbrowser instance\b/.test(normalized) ||
+    /\bchrome on (?:my|your|the user'?s) machine\b/.test(normalized) ||
+    /\bbrowser on (?:my|your|the user'?s) machine\b/.test(normalized) ||
+    /\bspawn (?:a |the )?(?:chrome|browser)\b/.test(normalized);
+  const antiNative =
+    /\b(?:not|without|don'?t use|do not use) composio\b/.test(normalized) ||
+    /\b(?:not|without|don'?t use|do not use) (?:the )?(?:native |api )?integrations?\b/.test(
+      normalized,
+    );
+  const browserMention = /\b(?:browser|chrome)\b/.test(normalized);
+  return directBrowserIntent || (antiNative && browserMention);
+}
+
+export function resolveSpawnIntegrations(
+  requested: string[],
+  available: string[],
+  content: string,
+): string[] {
+  if (available.includes("browser") && explicitlyRequestsBrowser(content)) {
+    return ["browser"];
+  }
+  return requested;
+}
+
 export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   const turnId = randomId("turn");
-  const integrations = availableIntegrations();
+  const integrations = (await listEnabledIntegrations()).map((i) => i.name);
 
   const inboundRole = opts.kind === "proactive" ? "system" : "user";
+  const inboundImageStorageIds = (opts.images ?? []).map((i) => i.storageId);
   await convex.mutation(api.messages.send, {
     conversationId: opts.conversationId,
     role: inboundRole,
     content: opts.content,
     turnId,
+    // TODO(codegen): drop cast once schema push regenerates Convex API.
+    imageStorageIds: inboundImageStorageIds.length > 0
+      ? (inboundImageStorageIds as never)
+      : undefined,
+    mediaError: opts.mediaError,
   });
   broadcast(opts.kind === "proactive" ? "proactive_notice" : "user_message", {
     conversationId: opts.conversationId,
@@ -215,134 +423,22 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     conversationId: opts.conversationId,
   });
 
-  const memoryServer = createMemoryMcp(opts.conversationId);
-  const automationServer = createAutomationMcp(opts.conversationId);
-  const draftDecisionServer = createDraftDecisionMcp(opts.conversationId);
-  const selfServer = createSelfMcp();
-
-  const ackServer = createSdkMcpServer({
-    name: "boop-ack",
-    version: "0.1.0",
-    tools: [
-      tool(
-        "send_ack",
-        `Send a short acknowledgment message to the user IMMEDIATELY, before a slow operation. Use this BEFORE spawn_agent so the user knows you heard them and are working on it. Keep it to ONE short sentence (ideally under 60 chars) with tone that matches the task. Examples: "On it — one sec 🔍", "Looking into it…", "Drafting now, hold tight.", "Let me check your calendar."`,
-        {
-          message: z.string().describe("1 short sentence ack. No markdown. Emojis OK."),
-        },
-        async (args) => {
-          const text = args.message.trim();
-          if (!text) {
-            return {
-              content: [{ type: "text" as const, text: "Empty ack skipped." }],
-            };
-          }
-          // Skip the iMessage send for proactive turns — those go out as a
-          // single self-contained notice from dispatchProactiveNotice. If the
-          // IA calls send_ack here on a proactive turn, the user would get
-          // two iMessages (the ack + the final reply). Still persist + log
-          // so the debug UI sees it.
-          if (opts.conversationId.startsWith("sms:") && opts.kind !== "proactive") {
-            const number = opts.conversationId.slice(4);
-            await sendImessage(number, text);
-          }
-          await convex.mutation(api.messages.send, {
-            conversationId: opts.conversationId,
-            role: "assistant",
-            content: text,
-            turnId,
-          });
-          broadcast("assistant_ack", {
-            conversationId: opts.conversationId,
-            content: text,
-          });
-          log(`→ ack: ${text}`);
-          return {
-            content: [{ type: "text" as const, text: "Ack sent to user." }],
-          };
-        },
-      ),
-    ],
-  });
-
   // Set by spawn_agent when a sub-agent paused for user action. The post-loop
-  // logic uses this to skip the "(no reply)" fallback so the user doesn't
-  // receive a placeholder message after the sub-agent already sent its own.
+  // logic uses this to skip the placeholder-reply fallback so the user doesn't
+  // receive a useless message after the sub-agent already sent its own.
   let dispatcherSilent = false;
 
-  const spawnServer = createSdkMcpServer({
-    name: "boop-spawn",
-    version: "0.1.0",
-    tools: [
-      tool(
-        "spawn_agent",
-        "Spawn a focused sub-agent to do real work using external tools. Returns the agent's final answer. Use for anything requiring lookups, drafting, or actions in the user's integrations. Multiple independent spawn_agent calls in one turn run in parallel — fan out when the request has independent sub-tasks instead of chaining serially.",
-        {
-          task: z
-            .string()
-            .describe("Crisp task description — what to find/draft/do, not the raw user message."),
-          integrations: z
-            .array(z.string())
-            .describe(`Which integrations to give the agent. Available: ${integrations.join(", ") || "(none)"}`),
-          name: z.string().optional().describe("Short label for the agent."),
-        },
-        async (args) => {
-          const res = await spawnExecutionAgent({
-            task: args.task,
-            integrations: args.integrations,
-            conversationId: opts.conversationId,
-            name: args.name,
-          });
-          if (res.status === "paused") {
-            dispatcherSilent = true;
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: `[agent ${res.agentId} PAUSED — waiting for user to complete a hand-action]\n\nThe sub-agent already messaged the user with what to do. DO NOT relay anything else for this turn — return an empty assistant message. Boop will re-spawn the agent when the user replies.`,
-                },
-              ],
-            };
-          }
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `[agent ${res.agentId} ${res.status}]\n\n${res.result}`,
-              },
-            ],
-          };
-        },
-      ),
-    ],
-  });
-
-  const history = await convex.query(api.messages.recent, {
-    conversationId: opts.conversationId,
-    limit: 30,
-  });
+  const history =
+    opts.kind === "proactive"
+      ? []
+      : await convex.query(api.messages.recent, {
+          conversationId: opts.conversationId,
+          limit: 10,
+        });
   const historyBlock = history
     .slice(0, -1)
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
     .join("\n");
-
-  const pendingServer = createSdkMcpServer({
-    name: "boop-pending",
-    version: "0.1.0",
-    tools: [
-      tool(
-        "clear_pending_continuation",
-        "Drop any pending continuation set by a paused sub-agent for THIS conversation. Call this when the user changes topic, cancels, or reports the hand-action didn't work — anything that means we shouldn't auto-resume the saved task. No-op when there's nothing pending.",
-        {},
-        async () => {
-          await convex.mutation(api.pendingContinuations.clear, {
-            conversationId: opts.conversationId,
-          });
-          return { content: [{ type: "text" as const, text: "Pending continuation cleared." }] };
-        },
-      ),
-    ],
-  });
 
   const pendingDescription = pendingContinuation
     ? `RESUME_TASK="${pendingContinuation.resumeTask.replace(/"/g, '\\"')}", INTEGRATIONS=[${pendingContinuation.integrations.join(", ")}], asked ${Math.round((Date.now() - pendingContinuation.askedAt) / 1000)}s ago by agent ${pendingContinuation.pausedByAgentId ?? "?"}`
@@ -353,103 +449,274 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     integrations.join(", ") || "(no integrations configured yet)",
   ).replace("{{PENDING_CONTINUATION}}", pendingDescription);
 
-  const prompt = historyBlock
-    ? `Prior turns:\n${historyBlock}\n\nCurrent message:\n${opts.content}`
+  const userText = opts.mediaError
+    ? `[user sent images but they couldn't be downloaded: ${opts.mediaError}]\n${opts.content}`
     : opts.content;
+  const promptText =
+    opts.kind === "proactive"
+      ? `Standalone proactive notice. Write a concise user-facing iMessage from this notice only. Do not research, spawn agents, or continue any prior conversation.\n\n${userText}`
+      : historyBlock
+        ? `Prior turns:\n${historyBlock}\n\nCurrent message:\n${userText}`
+        : userText;
 
   const tag = opts.turnTag ?? turnId.slice(-6);
   const log = (msg: string) => console.log(`[turn ${tag}] ${msg}`);
 
   const turnStart = Date.now();
-  const requestedModel = await getRuntimeModel();
+  // Snapshot runtime for this top-level turn so same-turn set_runtime/set_model
+  // changes do not split the dispatcher and any spawned execution agent.
+  const runtimeConfig = await getRuntimeConfig();
+  const directRuntimeSwitch =
+    opts.kind === "proactive" ? null : resolveDirectRuntimeSwitch(opts.content);
+  if (directRuntimeSwitch) {
+    await setRuntimeProvider(directRuntimeSwitch);
+    const nextConfig = await getRuntimeConfig();
+    const label = runtimeLabel(directRuntimeSwitch);
+    const reply =
+      runtimeConfig.runtime === directRuntimeSwitch
+        ? `Already on ${label}. Next turn will use ${nextConfig.model}.`
+        : `Switched to ${label}. Next turn will use ${nextConfig.model}.`;
+    log(`runtime switch: ${runtimeConfig.runtime} -> ${directRuntimeSwitch}`);
+    broadcast("assistant_message", { conversationId: opts.conversationId, content: reply });
+    if (opts.persistAssistantReply) {
+      await convex.mutation(api.messages.send, {
+        conversationId: opts.conversationId,
+        role: "assistant",
+        content: reply,
+        turnId,
+      });
+    }
+    return reply;
+  }
+
+  if (
+    opts.kind !== "proactive" &&
+    explicitlyRequestsBrowser(opts.content) &&
+    !integrations.includes("browser")
+  ) {
+    const reply =
+      "Local browser use is off right now. Turn it on in Settings → Local browser use, then resend this and I can use Chrome on your machine.";
+    log("browser requested but disabled");
+    broadcast("assistant_message", { conversationId: opts.conversationId, content: reply });
+    if (opts.persistAssistantReply) {
+      await convex.mutation(api.messages.send, {
+        conversationId: opts.conversationId,
+        role: "assistant",
+        content: reply,
+        turnId,
+      });
+    }
+    return reply;
+  }
+
+  const sendAck = async (message: string): Promise<void> => {
+    const text = redactPhoneNumbers(message.trim());
+    if (!text) return;
+    if (opts.conversationId.startsWith("sms:") && opts.kind !== "proactive") {
+      const number = opts.conversationId.slice(4);
+      await sendImessage(number, text);
+    }
+    await convex.mutation(api.messages.send, {
+      conversationId: opts.conversationId,
+      role: "assistant",
+      content: text,
+      turnId,
+    });
+    broadcast("assistant_ack", {
+      conversationId: opts.conversationId,
+      content: text,
+    });
+    log(`→ ack: ${text}`);
+  };
+
+  const promptBuild =
+    opts.kind === "proactive"
+      ? { prompt: promptText, imageStorageIds: [] }
+      : await buildPromptWithImagesOrTextFallback({
+          text: promptText,
+          imageStorageIds: inboundImageStorageIds,
+          fetchBytes: fetchStoredBytes,
+        });
+  if (promptBuild.imageError) {
+    log(`image fetch fallback: ${promptBuild.imageError}`);
+  }
+  const spawnableImageStorageIds = promptBuild.imageStorageIds;
+
+  const tools = [
+    ...createMemoryTools(opts.conversationId),
+    ...createAutomationTools(opts.conversationId),
+    ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
+    ...createSelfTools(),
+    defineRuntimeTool(
+      "boop-pending",
+      "clear_pending_continuation",
+      "Drop any pending continuation set by a paused sub-agent for THIS conversation. Call this when the user changes topic, cancels, or reports the hand-action didn't work — anything that means we shouldn't auto-resume the saved task. No-op when there's nothing pending.",
+      {},
+      async () => {
+        await convex.mutation(api.pendingContinuations.clear, {
+          conversationId: opts.conversationId,
+        });
+        return runtimeText("Pending continuation cleared.");
+      },
+    ),
+    defineRuntimeTool(
+      "boop-ack",
+      "send_ack",
+      `Send a short acknowledgment message to the user IMMEDIATELY, before a slow operation. Use this BEFORE spawn_agent so the user knows you heard them and are working on it. Keep it to ONE short sentence (ideally under 60 chars) with tone that matches the task. Examples: "On it — one sec 🔍", "Looking into it…", "Drafting now, hold tight.", "Let me check your calendar."`,
+      {
+        message: z.string().describe("1 short sentence ack. No markdown. Emojis OK."),
+      },
+      async (args) => {
+        const text = args.message.trim();
+        if (!text) return runtimeText("Empty ack skipped.");
+        await sendAck(text);
+        return runtimeText("Ack sent to user.");
+      },
+    ),
+    defineRuntimeTool(
+      "boop-spawn",
+      "spawn_agent",
+      "Spawn a focused sub-agent to do real work using external tools. Returns the agent's final answer. Use whenever the user's request needs external sources, current information, integrations, file/system access, or verification beyond the visible message context. If the current user message includes images and the sub-agent's task depends on them, pass the relevant storage IDs in imageRefs. On image turns, Azraj attaches all current-turn images by default; a non-empty imageRefs list can narrow to a subset.",
+      {
+        task: z
+          .string()
+          .describe("Crisp task description — what to find/draft/do, not the raw user message."),
+        integrations: z
+          .array(z.string())
+          .describe(`Which integrations to give the agent. Available: ${integrations.join(", ") || "(none)"}`),
+        name: z.string().optional().describe("Short label for the agent."),
+        imageRefs: z
+          .array(z.string())
+          .optional()
+          .describe(
+            "Convex storage IDs from the user's current message. Available in this turn: " +
+              (spawnableImageStorageIds.length > 0
+                ? spawnableImageStorageIds.join(", ")
+                : "(none)"),
+          ),
+      },
+      async (args) => {
+        const imageStorageIds = resolveSpawnImageRefs(
+          args.imageRefs,
+          spawnableImageStorageIds,
+        );
+        const selectedIntegrations = resolveSpawnIntegrations(
+          args.integrations,
+          integrations,
+          opts.content,
+        ).filter((name) => integrations.includes(name));
+        const browserForced =
+          selectedIntegrations.length === 1 &&
+          selectedIntegrations[0] === "browser" &&
+          !args.integrations.includes("browser");
+        if (browserForced) {
+          log(
+            `forcing browser integration for explicit browser request (model requested: ${args.integrations.join(",") || "none"})`,
+          );
+        }
+        const res = await spawnExecutionAgent({
+          task: args.task,
+          integrations: selectedIntegrations,
+          conversationId: opts.conversationId,
+          name: args.name,
+          runtimeConfig,
+          imageStorageIds,
+        });
+        if (res.status === "paused") {
+          dispatcherSilent = true;
+          return runtimeText(
+            `[agent ${res.agentId} PAUSED — waiting for user to complete a hand-action]\n\nThe sub-agent already messaged the user with what to do. DO NOT relay anything else for this turn — return an empty assistant message. Boop will re-spawn the agent when the user replies.`,
+          );
+        }
+        return runtimeText(`[agent ${res.agentId} ${res.status}]\n\n${redactPhoneNumbers(res.result)}`);
+      },
+    ),
+  ];
   let reply = "";
   let usage: UsageTotals = { ...EMPTY_USAGE };
   try {
-    for await (const msg of query({
-      prompt,
-      options: {
-        systemPrompt,
-        model: requestedModel,
-        mcpServers: {
-          "boop-memory": memoryServer,
-          "boop-spawn": spawnServer,
-          "boop-automations": automationServer,
-          "boop-draft-decisions": draftDecisionServer,
-          "boop-ack": ackServer,
-          "boop-self": selfServer,
-          "boop-pending": pendingServer,
-        },
-        allowedTools: [
-          "mcp__boop-memory__write_memory",
-          "mcp__boop-memory__recall",
-          "mcp__boop-spawn__spawn_agent",
-          "mcp__boop-automations__create_automation",
-          "mcp__boop-automations__list_automations",
-          "mcp__boop-automations__toggle_automation",
-          "mcp__boop-automations__delete_automation",
-          "mcp__boop-draft-decisions__list_drafts",
-          "mcp__boop-draft-decisions__send_draft",
-          "mcp__boop-draft-decisions__reject_draft",
-          "mcp__boop-pending__clear_pending_continuation",
-          "mcp__boop-ack__send_ack",
-          "mcp__boop-self__get_config",
-          "mcp__boop-self__set_model",
-          "mcp__boop-self__set_timezone",
-          "mcp__boop-self__list_integrations",
-          "mcp__boop-self__search_composio_catalog",
-          "mcp__boop-self__inspect_toolkit",
-        ],
-        // Belt-and-suspenders: even with bypassPermissions the SDK can leak
-        // its built-ins if we only whitelist. Explicitly block them on the
-        // dispatcher so it MUST spawn a sub-agent for external work.
-        disallowedTools: [
-          "WebSearch",
-          "WebFetch",
-          "Bash",
-          "Read",
-          "Write",
-          "Edit",
-          "Glob",
-          "Grep",
-          "Agent",
-          "Skill",
-        ],
-        permissionMode: "bypassPermissions",
+    const result = await runAgentRuntime(runtimeConfig, {
+      prompt: promptBuild.prompt,
+      systemPrompt,
+      tools,
+      mode: "dispatcher",
+      allowedTools:
+        opts.kind === "proactive"
+          ? []
+          : [
+              "mcp__boop-memory__write_memory",
+              "mcp__boop-memory__recall",
+              "mcp__boop-spawn__spawn_agent",
+              "mcp__boop-automations__create_automation",
+              "mcp__boop-automations__list_automations",
+              "mcp__boop-automations__toggle_automation",
+              "mcp__boop-automations__delete_automation",
+              "mcp__boop-draft-decisions__list_drafts",
+              "mcp__boop-draft-decisions__send_draft",
+              "mcp__boop-draft-decisions__reject_draft",
+              "mcp__boop-pending__clear_pending_continuation",
+              "mcp__boop-ack__send_ack",
+              "mcp__boop-self__get_config",
+              "mcp__boop-self__set_runtime",
+              "mcp__boop-self__set_model",
+              "mcp__boop-self__set_codex_reasoning_effort",
+              "mcp__boop-self__set_timezone",
+              "mcp__boop-self__list_integrations",
+              "mcp__boop-self__search_composio_catalog",
+              "mcp__boop-self__inspect_toolkit",
+            ],
+      // Belt-and-suspenders: even with bypassPermissions the SDK can leak
+      // its built-ins if we only whitelist. Explicitly block them on the
+      // dispatcher so it MUST spawn a sub-agent for external work.
+      disallowedTools: [
+        "WebSearch",
+        "WebFetch",
+        "Bash",
+        "Read",
+        "Write",
+        "Edit",
+        "Glob",
+        "Grep",
+        "Agent",
+        "Skill",
+      ],
+      onText: (chunk) => opts.onThinking?.(chunk),
+      onToolUse: (toolName, input) => {
+        const name = toolName.replace(/^mcp__boop-[a-z-]+__/, "");
+        const inputPreview = JSON.stringify(input);
+        log(
+          `tool: ${name}(${inputPreview.length > 90 ? inputPreview.slice(0, 90) + "…" : inputPreview})`,
+        );
       },
-    })) {
-      if (msg.type === "assistant") {
-        // Reset `reply` on each new assistant turn so only the LAST turn's
-        // text becomes the user-facing iMessage. Earlier turns are usually
-        // pre-tool-call narration ("Got it — saving that now.") that, if
-        // concatenated with the post-tool-result final text, sends as one
-        // smushed iMessage. Streaming via onThinking still sees everything.
-        reply = "";
-        for (const block of msg.message.content) {
-          if (block.type === "text") {
-            reply += block.text;
-            opts.onThinking?.(block.text);
-          } else if (block.type === "tool_use") {
-            const name = block.name.replace(/^mcp__boop-[a-z-]+__/, "");
-            const inputPreview = JSON.stringify(block.input);
-            log(
-              `tool: ${name}(${inputPreview.length > 90 ? inputPreview.slice(0, 90) + "…" : inputPreview})`,
-            );
-          }
-        }
-      } else if (msg.type === "result") {
-        usage = aggregateUsageFromResult(msg, requestedModel);
-      }
-    }
+    });
+    reply = result.text;
+    usage = result.usage;
   } catch (err) {
     console.error(`[turn ${tag}] query failed`, err);
     reply = "Sorry — I hit an error processing that. Try again in a moment.";
   }
 
+  // Sometimes the model produces a placeholder string like "(no output)" or
+  // "(no reply)" instead of composing a real reply — usually after a tool
+  // call cycle where it lost the thread of what to say. Treat those as
+  // empty so the user gets a real fallback they can act on.
+  reply = redactPhoneNumbers(reply.trim());
+  // Match "(no output)" / "no reply." / "(No Response)" etc. Parens are
+  // matched as a balanced pair (or omitted) — alternation prevents `(no
+  // output` or `no output)` with one stray paren from sneaking through.
+  const placeholder =
+    /^(?:\(\s*no (?:output|reply|response|content)\s*\)|no (?:output|reply|response|content))\.?$/i;
+  if (placeholder.test(reply)) reply = "";
   // When a sub-agent paused for user action it already sent its own message —
-  // don't fall back to the "(no reply)" placeholder, since that'd send a
-  // useless string to the user. Returning empty here makes the caller skip
-  // the iMessage send entirely.
-  reply = dispatcherSilent ? reply.trim() : reply.trim() || "(no reply)";
+  // returning empty makes the caller skip the iMessage send entirely, so no
+  // fallback here.
+  if (!reply && !dispatcherSilent) {
+    console.warn(`[turn ${tag}] empty/placeholder reply — using fallback`);
+    // Frame as model-side hiccup, not user error — the placeholder fires
+    // when the model loses the thread mid-tool-call, the user's phrasing
+    // is fine.
+    reply = "Hmm — got tangled up there. Want to try that again?";
+  }
 
   if (usage.costUsd > 0 || usage.inputTokens > 0) {
     log(
@@ -459,6 +726,8 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       source: "dispatcher",
       conversationId: opts.conversationId,
       turnId,
+      runtime: runtimeConfig.runtime,
+      billingMode: runtimeConfig.billingMode,
       model: usage.model,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
@@ -470,6 +739,15 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   }
 
   broadcast("assistant_message", { conversationId: opts.conversationId, content: reply });
+
+  if (opts.persistAssistantReply) {
+    await convex.mutation(api.messages.send, {
+      conversationId: opts.conversationId,
+      role: "assistant",
+      content: reply,
+      turnId,
+    });
+  }
 
   // Background extraction — fire-and-forget; don't block the reply.
   // Skip on proactive turns: the "user message" is a synthetic
@@ -484,6 +762,8 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       userMessage: opts.content,
       assistantReply: reply,
       turnId,
+      runtimeConfig,
+      imageStorageIds: inboundImageStorageIds,
     }).catch((err) => console.error("[interaction] extraction error", err));
   }
 

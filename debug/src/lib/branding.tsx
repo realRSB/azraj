@@ -1,7 +1,20 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  AiBrain02Icon,
+  CancelCircleIcon,
+  Clock02Icon,
+  Delete02Icon,
+  FileSearchIcon,
+  GlobalSearchIcon,
+  MailSend02Icon,
+  NoteEditIcon,
+  Robot02Icon,
+} from "@hugeicons/core-free-icons";
 
-// Integration brands — maps tool/server names to logo + display name.
-// Uses Google's favicon service so we don't ship logo assets.
+// Integration brands map tool/server names to logo + display name.
+// Most web tools use Google's favicon service; local app integrations can
+// provide their own public asset path for exact app icons.
 type ToolBrand = {
   key: string;
   displayName: string;
@@ -10,7 +23,8 @@ type ToolBrand = {
   // Override the favicon-by-domain icon with a local asset URL when the brand's
   // canonical favicon doesn't actually depict the product (e.g. "browser" wants
   // the Chrome browser pinwheel, not the Chrome Web Store logo).
-  assetUrl?: string;
+  logoUrl?: string;
+  fullBleedLogo?: boolean;
 };
 
 const TOOL_BRANDS: ToolBrand[] = [
@@ -53,6 +67,8 @@ const TOOL_BRANDS: ToolBrand[] = [
   { key: "discord", displayName: "Discord", domain: "discord.com", aliases: ["discord"] },
   { key: "twitter", displayName: "Twitter", domain: "twitter.com", aliases: ["twitter", "x"] },
   { key: "linkedin", displayName: "LinkedIn", domain: "linkedin.com", aliases: ["linkedin"] },
+  { key: "instagram", displayName: "Instagram", domain: "instagram.com", aliases: ["instagram"] },
+  { key: "youtube", displayName: "YouTube", domain: "youtube.com", aliases: ["youtube"] },
   { key: "trello", displayName: "Trello", domain: "trello.com", aliases: ["trello"] },
   { key: "asana", displayName: "Asana", domain: "asana.com", aliases: ["asana"] },
   { key: "jira", displayName: "Jira", domain: "atlassian.com", aliases: ["jira"] },
@@ -62,13 +78,36 @@ const TOOL_BRANDS: ToolBrand[] = [
   { key: "stripe", displayName: "Stripe", domain: "stripe.com", aliases: ["stripe"] },
   { key: "supabase", displayName: "Supabase", domain: "supabase.com", aliases: ["supabase"] },
   { key: "granola", displayName: "Granola", domain: "granola.ai", aliases: ["granola", "granola_mcp"] },
-  { key: "imessage", displayName: "iMessage", domain: "apple.com", aliases: ["imessage", "messages"] },
   {
     key: "browser",
     displayName: "Browser",
     domain: "google.com/chrome",
     aliases: ["browser"],
-    assetUrl: "/chrome-logo.svg",
+    logoUrl: "/chrome-logo.svg",
+  },
+  {
+    key: "imessage",
+    displayName: "iMessage",
+    domain: "apple.com",
+    aliases: ["imessage", "messages", "message", "chats", "chat", "sms"],
+    logoUrl: "/integration-icons/imessage.png",
+    fullBleedLogo: true,
+  },
+  {
+    key: "apple-notes",
+    displayName: "Apple Notes",
+    domain: "apple.com",
+    aliases: ["apple-notes", "notes", "note"],
+    logoUrl: "/integration-icons/apple-notes.png",
+    fullBleedLogo: true,
+  },
+  {
+    key: "apple-reminders",
+    displayName: "Apple Reminders",
+    domain: "apple.com",
+    aliases: ["apple-reminders", "reminders", "reminder"],
+    logoUrl: "/integration-icons/apple-reminders.png",
+    fullBleedLogo: true,
   },
 ];
 
@@ -130,68 +169,23 @@ export function prettyToolName(raw?: string | null): string {
   return humanize(raw);
 }
 
-// Boop-tool SVG icons (stroke-based, tint via currentColor)
-const BOOP_ICONS: Record<string, (s: number) => ReactNode> = {
-  recall: (s) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2a7 7 0 0 1 7 7c0 2.4-1.2 4.5-3 5.7V17a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2v-2.3C6.2 13.5 5 11.4 5 9a7 7 0 0 1 7-7z" />
-      <path d="M10 21h4" />
-    </svg>
-  ),
-  WebSearch: (s) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-      <path d="M2 12h20" />
-    </svg>
-  ),
-  WebFetch: (s) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M7 10h10" />
-      <path d="M5 6h14" />
-      <path d="M9 14h6" />
-      <path d="M12 4v16" />
-    </svg>
-  ),
-  write_memory: (s) => BOOP_ICONS.recall(s),
-  save_draft: (s) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  ),
-  send_draft: (s) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="m22 2-7 20-4-9-9-4 20-7z" />
-    </svg>
-  ),
-  spawn_agent: (s) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 8V4H8" />
-      <path d="m12 4 4 4" />
-      <rect width="16" height="12" x="4" y="8" rx="2" />
-    </svg>
-  ),
-  create_automation: (s) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M12 7v5l3 2" />
-    </svg>
-  ),
-  list_automations: (s) => BOOP_ICONS.create_automation(s),
-  toggle_automation: (s) => BOOP_ICONS.create_automation(s),
-  delete_automation: (s) => BOOP_ICONS.create_automation(s),
-  list_drafts: (s) => BOOP_ICONS.save_draft(s),
-  reject_draft: (s) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10" />
-      <path d="m15 9-6 6" />
-      <path d="m9 9 6 6" />
-    </svg>
-  ),
+const BOOP_ICONS: Record<string, any> = {
+  recall: AiBrain02Icon,
+  write_memory: AiBrain02Icon,
+  WebSearch: GlobalSearchIcon,
+  WebFetch: FileSearchIcon,
+  save_draft: NoteEditIcon,
+  list_drafts: NoteEditIcon,
+  send_draft: MailSend02Icon,
+  spawn_agent: Robot02Icon,
+  create_automation: Clock02Icon,
+  list_automations: Clock02Icon,
+  toggle_automation: Clock02Icon,
+  delete_automation: Delete02Icon,
+  reject_draft: CancelCircleIcon,
 };
 
-function getBoopToolIcon(raw?: string | null): ((s: number) => ReactNode) | null {
+function getBoopToolIcon(raw?: string | null): any | null {
   if (!raw) return null;
   const action = raw.split("__").pop() ?? raw;
   return BOOP_ICONS[action] ?? null;
@@ -212,30 +206,37 @@ export function IntegrationLogo({
   const boopIcon = getBoopToolIcon(raw);
   const [failed, setFailed] = useState(false);
   const style = { width: size, height: size };
-  const radius = Math.max(4, Math.round(size * 0.28));
+  const radius = Math.max(8, Math.round(size * 0.4));
   const iconSize = Math.max(12, Math.round(size * 0.72));
 
-  // Source priority:
-  //   1. Brand asset override (a curated local file for brands whose favicon
-  //      doesn't depict the product — e.g. "browser" → Chrome pinwheel, not
-  //      Chrome Web Store logo).
-  //   2. Explicit URL passed in (Composio's branded toolkit logo).
-  //   3. Favicon-by-domain fallback.
-  const imgSrc = !failed
-    ? (brand?.assetUrl ?? logoUrl ?? (brand ? faviconUrl(brand.domain) : null))
-    : null;
+  // Prefer an explicit URL (e.g. Composio's branded toolkit logo), then local
+  // brand assets (e.g. "browser" → Chrome pinwheel), then favicon-by-domain
+  // for ordinary web integrations.
+  const imgSrc =
+    !failed && logoUrl
+      ? logoUrl
+      : !failed && brand?.logoUrl
+        ? brand.logoUrl
+        : !failed && brand
+          ? faviconUrl(brand.domain)
+          : null;
+  const fullBleedLogo = !logoUrl && Boolean(brand?.fullBleedLogo);
 
   if (imgSrc) {
     return (
       <span
-        className={`inline-flex shrink-0 items-center justify-center overflow-hidden bg-white/95 ${className}`}
-        style={{ ...style, borderRadius: radius, border: "0.5px solid rgba(148,163,184,0.2)" }}
+        className={`inline-flex shrink-0 items-center justify-center overflow-hidden ${fullBleedLogo ? "bg-transparent" : "bg-white/95"} ${className}`}
+        style={{
+          ...style,
+          borderRadius: radius,
+          border: fullBleedLogo ? "0" : "0.5px solid rgba(148,163,184,0.2)",
+        }}
       >
         <img
           src={imgSrc}
           alt={brand?.displayName ?? raw ?? "integration"}
-          width={iconSize}
-          height={iconSize}
+          width={fullBleedLogo ? size : iconSize}
+          height={fullBleedLogo ? size : iconSize}
           className="block object-contain"
           loading="lazy"
           decoding="async"
@@ -251,14 +252,14 @@ export function IntegrationLogo({
         className={`inline-flex shrink-0 items-center justify-center overflow-hidden bg-violet-500/10 text-violet-400 ${className}`}
         style={{ ...style, borderRadius: radius, border: "0.5px solid rgba(139,92,246,0.25)" }}
       >
-        {boopIcon(iconSize)}
+        <HugeiconsIcon icon={boopIcon} size={iconSize} />
       </span>
     );
   }
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center overflow-hidden bg-slate-500/10 text-slate-400 ${className}`}
+      className={`inline-flex shrink-0 items-center justify-center overflow-hidden bg-zinc-500/10 text-zinc-400 ${className}`}
       style={{ ...style, borderRadius: radius, border: "0.5px solid rgba(148,163,184,0.25)" }}
     >
       <span className="text-[10px] font-semibold leading-none">
@@ -270,6 +271,70 @@ export function IntegrationLogo({
 
 export function ClaudeLogo({ size = 12, className = "" }: { size?: number; className?: string }) {
   return <img src="/claude-logo.png" width={size} height={size} alt="Claude" className={`inline-block ${className}`} />;
+}
+
+export type RuntimeProvider = "claude" | "codex";
+
+export function CodexLogo({ size = 12, className = "" }: { size?: number; className?: string }) {
+  return (
+    <img
+      src="/codex-logo.png"
+      width={size}
+      height={size}
+      alt="Codex"
+      className={`inline-block rounded-[4px] ${className}`}
+    />
+  );
+}
+
+export function RuntimeProviderLogo({
+  runtime,
+  size = 16,
+  className = "",
+}: {
+  runtime: RuntimeProvider;
+  size?: number;
+  className?: string;
+}) {
+  return runtime === "codex" ? (
+    <CodexLogo size={size} className={className} />
+  ) : (
+    <ClaudeLogo size={size} className={className} />
+  );
+}
+
+export function RuntimeProviderBadge({
+  runtime,
+  model,
+  isDark,
+  compact = false,
+  className = "",
+}: {
+  runtime: RuntimeProvider;
+  model?: string | null;
+  isDark: boolean;
+  compact?: boolean;
+  className?: string;
+}) {
+  const label = runtime === "codex" ? "Codex" : "Claude";
+  return (
+    <div
+      className={`inline-flex min-w-0 items-center gap-1.5 rounded-2xl border px-2.5 py-1.5 ${
+        isDark
+          ? "border-white/10 bg-white/5 text-zinc-300"
+          : "border-zinc-200 bg-white text-zinc-700"
+      } ${className}`}
+      title={`Active provider: ${label}${model ? ` (${model})` : ""}`}
+    >
+      <RuntimeProviderLogo runtime={runtime} size={compact ? 14 : 16} />
+      <span className="text-xs font-medium">{label}</span>
+      {!compact && model && (
+        <span className={`text-[10px] mono truncate ${isDark ? "text-zinc-500" : "text-zinc-400"}`}>
+          {model}
+        </span>
+      )}
+    </div>
+  );
 }
 
 export function BrailleIndicator({ className = "" }: { className?: string }) {
