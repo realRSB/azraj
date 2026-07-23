@@ -30,6 +30,7 @@ type MemoryLifecycle = "active" | "archived" | "pruned";
 export const upsert = mutation({
   args: {
     memoryId: v.string(),
+    conversationId: v.optional(v.string()),
     content: v.string(),
     tier: tierV,
     segment: segmentV,
@@ -67,6 +68,7 @@ export const upsert = mutation({
 
     if (existing) {
       await ctx.db.patch(existing._id, {
+        conversationId: args.conversationId ?? existing.conversationId,
         content: args.content,
         tier: args.tier,
         segment: args.segment,
@@ -113,7 +115,11 @@ export const getByIds = query({
 });
 
 export const vectorSearch = action({
-  args: { embedding: v.array(v.float64()), limit: v.optional(v.number()) },
+  args: {
+    embedding: v.array(v.float64()),
+    conversationId: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
   handler: async (
     ctx,
     args,
@@ -126,7 +132,10 @@ export const vectorSearch = action({
       // Demo vectors share the same index. Oversample enough to filter them
       // without allowing seeded showcase data into real memory recall.
       limit: Math.min(256, limit + 100),
-      filter: (q) => q.eq("lifecycle", "active"),
+      filter: (q) =>
+        args.conversationId
+          ? q.eq("conversationId", args.conversationId)
+          : q.eq("lifecycle", "active"),
     });
     const records = await ctx.runQuery(api.memoryRecords.getByIds, {
       ids: results.map((r) => r._id),
@@ -139,13 +148,14 @@ export const vectorSearch = action({
           _id: Id<"memoryRecords">;
           score: number;
           record: Doc<"memoryRecords">;
-        } => Boolean(result.record),
+        } => Boolean(result.record && result.record.lifecycle === "active"),
       )
       .slice(0, limit);
   },
 });
 
 type MemoryListArgs = {
+  conversationId?: string;
   tier?: MemoryTier;
   segment?: MemorySegment;
   lifecycle?: MemoryLifecycle;
@@ -154,7 +164,13 @@ type MemoryListArgs = {
 
 async function readMemories(ctx: QueryCtx, args: MemoryListArgs, demoOnly: boolean) {
   const limit = args.limit ?? 100;
-  const results = args.tier
+  const results = args.conversationId
+    ? await ctx.db
+        .query("memoryRecords")
+        .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
+        .order("desc")
+        .take(DEMO_SCAN_LIMIT)
+    : args.tier
     ? await ctx.db
         .query("memoryRecords")
         .withIndex("by_tier", (q) => q.eq("tier", args.tier!))
@@ -174,6 +190,7 @@ async function readMemories(ctx: QueryCtx, args: MemoryListArgs, demoOnly: boole
 }
 
 const listArgs = {
+  conversationId: v.optional(v.string()),
   tier: v.optional(tierV),
   segment: v.optional(segmentV),
   lifecycle: v.optional(lifecycleV),
@@ -193,7 +210,11 @@ export const listForDashboard = query({
 });
 
 export const search = query({
-  args: { query: v.string(), limit: v.optional(v.number()) },
+  args: {
+    query: v.string(),
+    conversationId: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const limit = args.limit ?? 20;
     const q = args.query.toLowerCase();
@@ -202,13 +223,24 @@ export const search = query({
     // order("desc") so the 500-cap favors recent records. Without it the
     // index iterates oldest-first and a brand-new high-importance record
     // past position 500 would never be seen.
-    const active = await ctx.db
-      .query("memoryRecords")
-      .withIndex("by_lifecycle", (idx) => idx.eq("lifecycle", "active"))
-      .order("desc")
-      .take(500);
+    const active = args.conversationId
+      ? await ctx.db
+          .query("memoryRecords")
+          .withIndex("by_conversation", (idx) => idx.eq("conversationId", args.conversationId))
+          .order("desc")
+          .take(500)
+      : await ctx.db
+          .query("memoryRecords")
+          .withIndex("by_lifecycle", (idx) => idx.eq("lifecycle", "active"))
+          .order("desc")
+          .take(500);
     return active
-      .filter((m) => !isDemoId(m.memoryId) && m.content.toLowerCase().includes(q))
+      .filter(
+        (m) =>
+          !isDemoId(m.memoryId) &&
+          m.lifecycle === "active" &&
+          m.content.toLowerCase().includes(q),
+      )
       .sort((a, b) => b.importance - a.importance)
       .slice(0, limit);
   },
@@ -349,10 +381,16 @@ export const setEmbedding = mutation({
 });
 
 export const countsByTier = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { conversationId: v.optional(v.string()) },
+  handler: async (ctx, args) => {
     const demoMode = await isDemoModeEnabled(ctx);
-    const rows = await ctx.db.query("memoryRecords").order("desc").take(COUNTS_SCAN_LIMIT);
+    const rows = args.conversationId
+      ? await ctx.db
+          .query("memoryRecords")
+          .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
+          .order("desc")
+          .take(COUNTS_SCAN_LIMIT)
+      : await ctx.db.query("memoryRecords").order("desc").take(COUNTS_SCAN_LIMIT);
     const all = rows.filter((m) => isDemoId(m.memoryId) === demoMode);
     const active = all.filter((m) => m.lifecycle === "active");
     return {

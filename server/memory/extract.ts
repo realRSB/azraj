@@ -118,6 +118,7 @@ export async function extractAndStore(opts: {
         opts.imageStorageIds.length > 0;
       await convex.mutation(api.memoryRecords.upsert, {
         memoryId,
+        conversationId: opts.conversationId,
         content: f.content,
         tier: defaults.tier,
         segment: f.segment,
