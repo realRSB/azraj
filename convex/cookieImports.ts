@@ -29,7 +29,7 @@ export const record = mutation({
     const now = Date.now();
     const existing = await ctx.db
       .query("cookieImports")
-      .withIndex("by_service", (q) => q.eq("service", args.service))
+      .withIndex("by_service_profile", (q) => q.eq("service", args.service).eq("sourceProfile", args.sourceProfile))
       .unique();
     const payload = {
       service: args.service,
