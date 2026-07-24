@@ -152,11 +152,11 @@ export async function tickStreaks(): Promise<void> {
   const hour = morningHour();
   for (const row of rows) {
     if (!row.conversationId.startsWith("sms:")) continue;
-    const tz = row.timezone || (await getUserTimezone());
-    const { isoDate, hour: localHour } = localDay(tz);
-    if (localHour < hour) continue; // not morning yet in their zone
-    if (row.lastCardDate === isoDate) continue; // already sent today
     try {
+      const tz = row.timezone || (await getUserTimezone());
+      const { isoDate, hour: localHour } = localDay(tz);
+      if (localHour < hour) continue; // not morning yet in their zone
+      if (row.lastCardDate === isoDate) continue; // already sent today
       await sendStreakCard(row);
     } catch (err) {
       console.error(`[streak] morning send failed for ${row.conversationId}`, err);
