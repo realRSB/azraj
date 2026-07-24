@@ -255,7 +255,7 @@ export default defineSchema({
     lastImportedAt: v.number(),
     lastVerifiedAt: v.optional(v.number()),
     verifiedOk: v.optional(v.boolean()),
-  }).index("by_service", ["service"]),
+  }).index("by_service_profile", ["service", "sourceProfile"]).index("by_service", ["service"]),
 
   automationRuns: defineTable({
     runId: v.string(),
