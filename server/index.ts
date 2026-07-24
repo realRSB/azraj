@@ -21,6 +21,7 @@ import { createMemoryRouter } from "./memory-routes.js";
 import { createAppleRouter } from "./apple-routes.js";
 import { closeLocalBrowser } from "./browser/launcher.js";
 import { createChangelogRouter } from "./changelog.js";
+import { createPublicAuthRouter } from "./public-auth-routes.js";
 import {
   getRuntimeConfig,
   resolveModelInput,
@@ -140,6 +141,7 @@ async function main() {
   });
 
   app.use("/sendblue", createSendblueRouter());
+  app.use("/public-auth", createPublicAuthRouter());
   app.use("/composio", createComposioRouter());
   app.use("/memory", createMemoryRouter());
   app.use("/browser", createBrowserRouter());

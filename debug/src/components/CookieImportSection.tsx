@@ -157,7 +157,7 @@ export function CookieImportSection({ isDark }: { isDark: boolean }) {
             verifyText = " · login verified";
           } else if (v.state === "needs_challenge") {
             verifyText =
-              " · Google recognizes you but wants a one-time device confirmation. Finish it in the open Chrome window — once approved, future runs won't ask again.";
+              " · Cookies imported, but this site wants a one-time device confirmation / 2FA step. Finish it in the open Chrome window — once approved, future runs shouldn’t ask again.";
             tone = "err";
           } else {
             verifyText = " · cookies copied but login didn't carry over";

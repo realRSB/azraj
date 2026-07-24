@@ -36,6 +36,7 @@ console.log("[browser-login] When you're done, run `npx agent-browser close` (or
 const child = spawn("npx", ["agent-browser", ...browserBaseArgs(), "open", url], {
   stdio: "inherit",
   env: { ...process.env, AGENT_BROWSER_HEADED: "1" },
+  shell: process.platform === "win32",
 });
 
 child.on("exit", (code) => process.exit(code ?? 0));

@@ -127,6 +127,15 @@ const STACK_LINE = /^\s+at\s/;
 // through the shell there. Args here never contain spaces, so this is safe.
 const isWin = process.platform === "win32";
 
+// Shared teardown flag. Set once when we intentionally stop the stack (Ctrl-C
+// / SIGTERM) so the per-service supervisor doesn't try to "recover" a child we
+// killed on purpose.
+let shuttingDown = false;
+
+function prefixFor(name) {
+  return `${C[name] ?? ""}${name.padEnd(6)}${C.reset} │ `;
+}
+
 function run(name, cmd, args, readyPattern) {
   const child = spawn(cmd, args, {
     cwd: root,
@@ -136,7 +145,7 @@ function run(name, cmd, args, readyPattern) {
     // tsx's watch-mode keypress listener hang on Windows.
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const prefix = `${C[name]}${name.padEnd(6)}${C.reset} │ `;
+  const prefix = prefixFor(name);
   let buf = "";
   let suppressing = false;
   let resolveReady;
@@ -178,6 +187,72 @@ function run(name, cmd, args, readyPattern) {
   child.stderr.on("data", feed);
   child.ready = ready;
   return child;
+}
+
+// --- supervisor: keep each service alive across crashes -----------------
+// A single child crashing (a transient tsx / convex / ngrok hiccup, or the
+// server dying mid-request) used to tear the WHOLE stack down. Instead,
+// restart just that child with exponential backoff. A genuine crash-loop
+// (many failures in a short window) stops retrying THAT service and leaves
+// the rest of the stack running — so you keep the dashboard + logs to debug
+// from instead of losing everything.
+const RESTART_WINDOW_MS = 60_000;
+const MAX_RESTARTS_IN_WINDOW = 5;
+const MAX_BACKOFF_MS = 30_000;
+
+function createService(name, cmd, args, readyPattern, opts = {}) {
+  const { restart = true, onRespawn } = opts;
+  // `current` always points at the live child so shutdown kills the right one.
+  // `ready` is the FIRST spawn's readiness promise (feeds the startup banner).
+  const svc = { name, current: null, ready: null, givenUp: false };
+  const failures = [];
+
+  const handleExit = (code) => {
+    if (shuttingDown || svc.givenUp || !restart) return;
+    // A clean exit is intentional (nothing here exits 0 on its own during
+    // normal operation) — don't fight it.
+    if (code === 0) {
+      process.stdout.write(`${prefixFor(name)}exited cleanly; not restarting.\n`);
+      return;
+    }
+    const now = Date.now();
+    while (failures.length && now - failures[0] > RESTART_WINDOW_MS) failures.shift();
+    failures.push(now);
+    if (failures.length > MAX_RESTARTS_IN_WINDOW) {
+      svc.givenUp = true;
+      console.error(
+        `\n${prefixFor(name)}crashed ${failures.length}× in under ${RESTART_WINDOW_MS / 1000}s — ` +
+          `giving up on this service. The rest of the stack stays up; fix the error above ` +
+          `and restart with \`npm run dev\`.`,
+      );
+      return;
+    }
+    const delay = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** (failures.length - 1));
+    console.error(
+      `\n${prefixFor(name)}exited with code ${code ?? "null"} — restarting in ` +
+        `${Math.round(delay / 1000)}s (attempt ${failures.length}/${MAX_RESTARTS_IN_WINDOW}).`,
+    );
+    setTimeout(() => {
+      if (shuttingDown || svc.givenUp) return;
+      spawnOnce();
+      try {
+        onRespawn?.();
+      } catch {
+        /* onRespawn is best-effort */
+      }
+    }, delay);
+  };
+
+  const spawnOnce = () => {
+    const child = run(name, cmd, args, readyPattern);
+    svc.current = child;
+    if (!svc.ready) svc.ready = child.ready;
+    child.on("exit", handleExit);
+    return child;
+  };
+
+  spawnOnce();
+  return svc;
 }
 
 // --- ngrok URL banner: poll local API after launch ----------------------
@@ -265,7 +340,7 @@ console.log(`\nAzraj dev starting on port ${port}. Ctrl-C to stop everything.\n`
 run("upstream", nodeCmd, ["scripts/check-upstream.mjs"]);
 
 const tsxBin = localBin("tsx");
-const serverChild = run(
+const serverSvc = createService(
   "server",
   tsxBin.cmd,
   [...tsxBin.args, "watch", "server/index.ts"],
@@ -275,28 +350,40 @@ convexEnvFile = writeConvexDevEnvFile();
 const convexArgs = ["convex", "dev"];
 if (convexEnvFile) convexArgs.push("--env-file", convexEnvFile);
 const convexBin = localBin("convex");
-const convexChild = run(
+const convexSvc = createService(
   "convex",
   convexBin.cmd,
   [...convexBin.args, ...convexArgs.slice(1)],
   /Convex functions ready/,
 );
 const viteBin = localBin("vite");
-const debugChild = run(
+const debugSvc = createService(
   "debug",
   viteBin.cmd,
   [...viteBin.args, "--config", "debug/vite.config.ts"],
   /Local:\s+http/,
 );
-const children = [serverChild, convexChild, debugChild];
+const services = [serverSvc, convexSvc, debugSvc];
 
 let ngrokUrlReady = Promise.resolve(null);
 if (useNgrok && ngrokInstalled) {
   const args = ngrokDomain
     ? ["http", port, `--domain=${ngrokDomain}`, "--log=stdout", "--log-format=term", "--log-level=info"]
     : ["http", port, "--log=stdout", "--log-format=term", "--log-level=info"];
-  const ngrokChild = run("ngrok", "ngrok", args);
-  children.push(ngrokChild);
+  const ngrokSvc = createService("ngrok", "ngrok", args, undefined, {
+    // A restarted ngrok tunnel gets a NEW public URL on the free tier, so the
+    // Sendblue + Composio webhooks must be re-pointed at it. (A reserved
+    // --domain keeps the same URL; re-registering is then deduped + harmless.)
+    onRespawn: () => {
+      registerSendblueWhenTunnelAppears().catch(() => {});
+      (async () => {
+        await sleep(3000);
+        const url = await readNgrokUrl();
+        if (url) await autoRegisterComposioWebhook(url).catch(() => {});
+      })().catch(() => {});
+    },
+  });
+  services.push(ngrokSvc);
   ngrokUrlReady = Promise.race([
     ngrokOutputUrlReady,
     new Promise((resolve) => setTimeout(() => resolve(null), 10000)),
@@ -379,9 +466,9 @@ if (useNgrok && ngrokInstalled && !ngrokDomain) {
 }
 
 Promise.all([
-  serverChild.ready,
-  convexChild.ready,
-  debugChild.ready,
+  serverSvc.ready,
+  convexSvc.ready,
+  debugSvc.ready,
   ngrokUrlReady,
 ])
   .then(async ([, , , ngrokUrl]) => {
@@ -422,7 +509,9 @@ ${line}${C.reset}
   })
   .catch(() => {});
 
-let shuttingDown = false;
+// Note: `shuttingDown` is declared near the top so the supervisor can see it.
+// Per-child exits are owned by createService()'s supervisor (restart/backoff);
+// we only tear the whole stack down on an explicit signal below.
 const shutdown = (code = 0) => {
   if (shuttingDown) return;
   shuttingDown = true;
@@ -433,9 +522,9 @@ const shutdown = (code = 0) => {
       /* ignore */
     }
   }
-  for (const c of children) {
+  for (const svc of services) {
     try {
-      c.kill();
+      svc.current?.kill();
     } catch {
       /* ignore */
     }
@@ -444,11 +533,3 @@ const shutdown = (code = 0) => {
 };
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
-for (const c of children) {
-  c.on("exit", (code) => {
-    if (!shuttingDown && code !== null && code !== 0) {
-      console.error(`\nA child process exited with code ${code}. Shutting down.`);
-      shutdown(code);
-    }
-  });
-}
