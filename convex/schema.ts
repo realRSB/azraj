@@ -2,6 +2,44 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  users: defineTable({
+    phoneE164: v.string(),
+    displayName: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    onboardingStatus: v.union(v.literal("started"), v.literal("connected")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastSeenAt: v.optional(v.number()),
+  }).index("by_phone", ["phoneE164"]),
+
+  userSessions: defineTable({
+    userId: v.id("users"),
+    sessionToken: v.string(),
+    createdAt: v.number(),
+    lastSeenAt: v.number(),
+    expiresAt: v.number(),
+  }).index("by_token", ["sessionToken"]),
+
+  phoneOtps: defineTable({
+    phoneE164: v.string(),
+    codeHash: v.string(),
+    attempts: v.number(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+  }).index("by_phone", ["phoneE164"]),
+
+  userConversationLinks: defineTable({
+    userId: v.id("users"),
+    phoneE164: v.string(),
+    conversationId: v.string(),
+    verifiedAt: v.number(),
+    lastLinkedAt: v.number(),
+  })
+    .index("by_user", ["userId"])
+    .index("by_phone", ["phoneE164"])
+    .index("by_conversation", ["conversationId"]),
+
   messages: defineTable({
     conversationId: v.string(),
     role: v.union(v.literal("user"), v.literal("assistant"), v.literal("system")),
@@ -26,6 +64,7 @@ export default defineSchema({
 
   memoryRecords: defineTable({
     memoryId: v.string(),
+    conversationId: v.optional(v.string()),
     content: v.string(),
     tier: v.union(v.literal("short"), v.literal("long"), v.literal("permanent")),
     segment: v.union(
@@ -54,13 +93,14 @@ export default defineSchema({
     imageStorageIds: v.optional(v.array(v.id("_storage"))),
   })
     .index("by_memory_id", ["memoryId"])
+    .index("by_conversation", ["conversationId"])
     .index("by_tier", ["tier"])
     .index("by_segment", ["segment"])
     .index("by_lifecycle", ["lifecycle"])
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 1024,
-      filterFields: ["lifecycle"],
+      filterFields: ["lifecycle", "conversationId"],
     }),
 
   executionAgents: defineTable({
@@ -175,7 +215,8 @@ export default defineSchema({
     createdAt: v.number(),
   })
     .index("by_automation_id", ["automationId"])
-    .index("by_enabled", ["enabled"]),
+    .index("by_enabled", ["enabled"])
+    .index("by_conversation", ["conversationId"]),
 
   sendblueDedup: defineTable({
     handle: v.string(),

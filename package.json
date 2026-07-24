@@ -2,6 +2,10 @@
   "name": "boop-agent",
   "version": "0.2.0",
   "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "description": "Text-an-agent starter: iMessage your Claude or Codex-backed agent, with sub-agents, memory, automations, and integrations.",
   "license": "MIT",
   "main": "electron/main.cjs",
@@ -13,6 +17,9 @@
     "sendblue:webhook:check": "node scripts/sendblue-webhook.mjs --check",
     "preflight": "node scripts/preflight.mjs",
     "dev": "node scripts/dev.mjs",
+    "web:dev": "vite --config apps/web/vite.config.ts",
+    "web:build": "vite build --config apps/web/vite.config.ts",
+    "web:preview": "vite preview --config apps/web/vite.config.ts",
     "dev:parallel": "npm-run-all --parallel dev:server dev:convex dev:debug",
     "dev:server": "npm run preflight && tsx watch server/index.ts",
     "dev:convex": "convex dev",

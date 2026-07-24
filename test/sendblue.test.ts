@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { sendImessage } from "../server/sendblue.js";
+import { normalizeE164, sendImessage } from "../server/sendblue.js";
 
 const originalApiKey = process.env.SENDBLUE_API_KEY;
 const originalApiSecret = process.env.SENDBLUE_API_SECRET;
@@ -25,6 +25,12 @@ afterEach(() => {
 });
 
 describe("sendImessage", () => {
+  it("normalizes phone numbers for public user conversation identity", () => {
+    expect(normalizeE164("7862139361")).toBe("+17862139361");
+    expect(normalizeE164("17862139361")).toBe("+17862139361");
+    expect(normalizeE164("+17862139361")).toBe("+17862139361");
+  });
+
   it("redacts phone numbers from the delivered message body", async () => {
     process.env.SENDBLUE_API_KEY = "test-key";
     process.env.SENDBLUE_API_SECRET = "test-secret";
