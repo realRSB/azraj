@@ -296,7 +296,7 @@ export default defineSchema({
     lastImportedAt: v.number(),
     lastVerifiedAt: v.optional(v.number()),
     verifiedOk: v.optional(v.boolean()),
-  }).index("by_service", ["service"]),
+  }).index("by_service_profile", ["service", "sourceProfile"]).index("by_service", ["service"]),
 
   // Per-user texting streak. One row per conversation (i.e. per phone number
   // in `sms:+1…` form). A "day" is counted in the user's timezone at the time

@@ -34,6 +34,11 @@ Format:
   images (JPEG, kept small for reliable MMS delivery) on Convex storage's
   public CDN URLs.
 
+## Unreleased — Durable dev supervisor
+
+- Fixed: `npm run dev` no longer tears the whole stack down when a single child (server, convex, debug, or ngrok) exits non-zero. Each service is now supervised independently and restarted with exponential backoff (capped at 30s). A crash-loop (more than 5 restarts within 60s) stops retrying that one service and leaves the rest of the stack — dashboard, logs — running so you can still debug.
+- Added: when ngrok restarts and its free-tier public URL changes, the Sendblue and Composio webhooks are automatically re-registered against the new URL.
+
 ## Unreleased — Optional local Apple data
 
 - Added: optional Mac-only, read-only local Apple data connectors for iMessage/SMS history, Apple Notes, and Apple Reminders. The integration is off by default and requires both the master Apple data toggle and a per-source connect action before tools are exposed.

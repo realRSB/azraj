@@ -150,7 +150,8 @@ export function listDailyProfiles(): DailyProfile[] {
 // the temp copy read-only. This avoids any lock contention with running
 // Chrome and guarantees a consistent view.
 function snapshotCookieDb(srcPath: string): string {
-  const tmp = join("/tmp", `boop-cookies-${process.pid}-${Date.now()}.db`);
+  const tmpRoot = process.env.TMPDIR || process.env.TMP || process.env.TEMP || "/tmp";
+  const tmp = join(tmpRoot, `boop-cookies-${process.pid}-${Date.now()}.db`);
   copyFileSync(srcPath, tmp);
   if (existsSync(srcPath + "-wal")) copyFileSync(srcPath + "-wal", tmp + "-wal");
   if (existsSync(srcPath + "-shm")) copyFileSync(srcPath + "-shm", tmp + "-shm");
