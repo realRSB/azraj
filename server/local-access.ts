@@ -128,6 +128,8 @@ export function isPublicServerRequest(request: RequestLike): boolean {
   return (
     (request.method === "GET" && normalizedPath === "/health") ||
     (request.method === "POST" && normalizedPath === "/sendblue/webhook") ||
-    (request.method === "POST" && normalizedPath === "/composio/webhook")
+    (request.method === "POST" && normalizedPath === "/composio/webhook") ||
+    (request.method === "POST" && normalizedPath === "/public-auth/start") ||
+    (request.method === "POST" && normalizedPath === "/public-auth/verify")
   );
 }

@@ -43,6 +43,7 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
         const embedding = (await embed(args.content)) ?? undefined;
         await convex.mutation(api.memoryRecords.upsert, {
           memoryId,
+          conversationId,
           content: args.content,
           tier,
           segment: args.segment,
@@ -78,6 +79,7 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
           if (queryVec) {
             const hits = await convex.action(api.memoryRecords.vectorSearch, {
               embedding: queryVec,
+              conversationId,
               limit: args.limit,
             });
             results = hits.map((h) => h.record);
@@ -87,6 +89,7 @@ export function createMemoryTools(conversationId: string): RuntimeTool[] {
         if (results.length === 0) {
           results = await convex.query(api.memoryRecords.search, {
             query: args.query,
+            conversationId,
             limit: args.limit,
           });
         }

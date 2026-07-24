@@ -63,9 +63,9 @@ function headers(): Record<string, string> | null {
   };
 }
 
-function normalizeE164(n: string | undefined): string | undefined {
+export function normalizeE164(n: string | undefined): string | undefined {
   if (!n) return undefined;
-  const trimmed = n.trim();
+  const trimmed = n.trim().replace(/[^\d+]/g, "");
   if (!trimmed) return undefined;
   if (trimmed.startsWith("+")) return trimmed;
   // Bare US-length numbers get a +1. Longer/shorter just get a leading +.
@@ -295,7 +295,14 @@ export function createSendblueRouter(): express.Router {
       else ingestErrors.push(r.reason);
     }
 
-    const conversationId = `sms:${from_number}`;
+    const normalizedFrom = normalizeE164(from_number);
+    const conversationId = `sms:${normalizedFrom ?? from_number}`;
+    if (normalizedFrom) {
+      await convex.mutation(api.publicUsers.linkInboundConversation, {
+        phoneE164: normalizedFrom,
+        conversationId,
+      });
+    }
     const turnTag = Math.random().toString(36).slice(2, 8);
     const textForLog = typeof content === "string" ? content : "";
     const safeTextForLog = redactPhoneNumbers(textForLog);
