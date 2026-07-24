@@ -176,7 +176,12 @@ function sendblueInvoker() {
 
 function runCapture(cmd, args) {
   return new Promise((ok, fail) => {
-    const p = spawn(cmd, args, { cwd: root, env: commandEnv() });
+    // shell:true on Windows so `npx`/`sendblue` .cmd shims resolve.
+    const p = spawn(cmd, args, {
+      cwd: root,
+      env: commandEnv(),
+      shell: process.platform === "win32",
+    });
     let out = "";
     p.stdout.on("data", (d) => (out += d.toString()));
     p.stderr.on("data", () => {});
@@ -202,7 +207,8 @@ function parseWebhookLines(output) {
   return hooks;
 }
 
-const STALE_DOMAIN_RE = /(ngrok-free\.(app|dev)|ngrok\.app|trycloudflare\.com|loca\.lt)/;
+const STALE_DOMAIN_RE =
+  /(ngrok-free\.(app|dev)|ngrok\.(app|dev)|trycloudflare\.com|loca\.lt)/;
 
 function normalizeWebhookUrl(value) {
   const trimmed = value.replace(/\/$/, "");

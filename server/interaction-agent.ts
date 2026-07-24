@@ -77,16 +77,46 @@ spawn_agent. Refusing or suggesting the user use another tool is a failure
 unless the spawned agent already tried and could not complete the task.
 
 Acknowledgment rule (iMessage UX):
-BEFORE every spawn_agent call, you MUST call send_ack first with a short
+BEFORE any spawn_agent call(s), you MUST call send_ack first with a short
 1-sentence message. The user otherwise sees nothing for 10-30 seconds while
 the sub-agent works. Examples of good acks:
   "gotchu — one sec."
   "checking your calendar rn…"
   "drafting that now."
   "checking slack, hold tight."
-Order: send_ack → spawn_agent → (wait) → final reply with the result.
+Order: send_ack → spawn_agent(s) → (wait) → final reply with the result(s).
+ONE ack covers multiple parallel spawns — don't ack each one separately.
 Skip the ack ONLY for things you'll answer in under 2 seconds (chit-chat,
 simple memory recall, single automation toggle).
+
+Parallel spawning:
+When the user's request decomposes into independent sub-tasks (e.g. "check
+my gmail unreads AND summarize today's calendar", or "draft the email and
+also find me 3 restaurants nearby"), emit MULTIPLE spawn_agent tool_use
+blocks in the SAME assistant turn. They run concurrently and you'll see
+all results before your next turn. This is much faster than chaining
+sequential spawns. Rules:
+  - Only fan out for genuinely independent tasks. If task B needs task A's
+    result, do them sequentially.
+  - Send ONE send_ack first, then all the spawns in the same turn.
+  - When relaying, combine the results in one reply — don't make the user
+    read N separate messages.
+
+Resolving references ("it", "her", "this", "the flight", "send it"):
+The user texts in shorthand. Before spawning, resolve the referent from
+visible conversation history and bake the concrete noun into the spawn
+task — never pass the user's pronoun through. "Forward her the flight
+details" should become a task that names WHICH flight (e.g. "the SFO
+itinerary May 1–7 we found earlier"), not "the most recent flight email."
+"Most recent X" is NOT a safe default for ambiguous references.
+- If two recent topics could match, or the referent isn't in your visible
+  history at all, ASK the user one short clarifying question instead of
+  guessing.
+- If the referent might be a saved fact (a person, a project, an account),
+  call recall() first.
+- Topic hops (the user wandered to YouTube/Twitter/etc.) push earlier
+  context out of view — don't assume your visible history covers the whole
+  thread. When in doubt, ask.
 
 Memory — recall is MANDATORY before any claim about the user:
 Your context does NOT auto-load saved memories. You must call recall()
@@ -190,7 +220,8 @@ If "browser" is not available, tell the user to turn on Local browser use in
 Settings. Otherwise, prefer native integrations when they fit. Use browser for
 login-only services, sites with no native toolkit, visual workflows, JS-heavy
 apps, or sites that are likely to detect bots. If the user must log in, the
-sub-agent can open a visible local browser handoff window with browser_request_login.
+sub-agent pauses via pause_for_user and the saved task auto-resumes when the
+user replies that they're done (see pending continuation below).
 
 Travel, reservations, and receipts:
 Flight, airport, boarding pass, itinerary, hotel, restaurant, ticket, order,
@@ -241,7 +272,35 @@ user once ("what timezone are you in?") and call set_timezone with their
 answer. Don't silently guess from city names mentioned in passing — confirm
 before saving.
 
+Choosing integrations for spawn_agent:
+- Pick the SPECIFIC native toolkit that matches the task (gmail for email,
+  calendar for events, slack for slack, etc.). Don't shotgun all of them.
+- The "browser" integration is a FALLBACK for sites/services with no native
+  toolkit. NEVER pass "browser" for a task a native toolkit can do — if the
+  user asks about Gmail, pass ["gmail"], NOT ["browser"] or ["gmail", "browser"].
+  Browser is for tasks like "log into my landlord's tenant portal and grab
+  this month's invoice" — sites we don't have a Composio toolkit for. The
+  sub-agent already runs in a logged-in Chrome profile via "browser".
+- If you're unsure whether a toolkit exists, prefer the toolkit name and let
+  the sub-agent fall back if it doesn't have the right tool surface.
+
 Available integrations for spawn_agent: {{INTEGRATIONS}}
+
+Pending continuation for this conversation: {{PENDING_CONTINUATION}}
+
+When pending continuation is non-null, a previous sub-agent paused mid-task
+and asked the user to do something by hand (login, OAuth, captcha, file
+pick). Decide based on the user's CURRENT message:
+- If their reply indicates they completed the action (any signal of
+  readiness — "done", "logged in", "ready", "ok", "yes", "now", "go", or
+  similar; OR they say nothing about cancelling and just push forward like
+  "what's the balance?"): IMMEDIATELY call spawn_agent with the saved
+  resume_task, the saved integrations, and a name like "resume". Do NOT
+  ask for clarification first — the user is waiting. Send_ack right before
+  if it'll take a while.
+- If they cancel, change topic, or say it didn't work: tell the user
+  briefly ("got it, dropping that"), call clear_pending_continuation, and
+  proceed normally with their new request.
 
 Images:
 When the user texts a photo or screenshot, you'll see it directly as
@@ -360,6 +419,15 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     content: opts.content,
   });
 
+  const pendingContinuation = await convex.query(api.pendingContinuations.get, {
+    conversationId: opts.conversationId,
+  });
+
+  // Set by spawn_agent when a sub-agent paused for user action. The post-loop
+  // logic uses this to skip the placeholder-reply fallback so the user doesn't
+  // receive a useless message after the sub-agent already sent its own.
+  let dispatcherSilent = false;
+
   const history =
     opts.kind === "proactive"
       ? []
@@ -372,10 +440,14 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
     .join("\n");
 
+  const pendingDescription = pendingContinuation
+    ? `RESUME_TASK="${pendingContinuation.resumeTask.replace(/"/g, '\\"')}", INTEGRATIONS=[${pendingContinuation.integrations.join(", ")}], asked ${Math.round((Date.now() - pendingContinuation.askedAt) / 1000)}s ago by agent ${pendingContinuation.pausedByAgentId ?? "?"}`
+    : "(none)";
+
   const systemPrompt = INTERACTION_SYSTEM.replace(
     "{{INTEGRATIONS}}",
     integrations.join(", ") || "(no integrations configured yet)",
-  );
+  ).replace("{{PENDING_CONTINUATION}}", pendingDescription);
 
   const userText = opts.mediaError
     ? `[user sent images but they couldn't be downloaded: ${opts.mediaError}]\n${opts.content}`
@@ -476,6 +548,18 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
     ...createSelfTools(),
     defineRuntimeTool(
+      "boop-pending",
+      "clear_pending_continuation",
+      "Drop any pending continuation set by a paused sub-agent for THIS conversation. Call this when the user changes topic, cancels, or reports the hand-action didn't work — anything that means we shouldn't auto-resume the saved task. No-op when there's nothing pending.",
+      {},
+      async () => {
+        await convex.mutation(api.pendingContinuations.clear, {
+          conversationId: opts.conversationId,
+        });
+        return runtimeText("Pending continuation cleared.");
+      },
+    ),
+    defineRuntimeTool(
       "boop-ack",
       "send_ack",
       `Send a short acknowledgment message to the user IMMEDIATELY, before a slow operation. Use this BEFORE spawn_agent so the user knows you heard them and are working on it. Keep it to ONE short sentence (ideally under 60 chars) with tone that matches the task. Examples: "On it — one sec 🔍", "Looking into it…", "Drafting now, hold tight.", "Let me check your calendar."`,
@@ -538,6 +622,12 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           runtimeConfig,
           imageStorageIds,
         });
+        if (res.status === "paused") {
+          dispatcherSilent = true;
+          return runtimeText(
+            `[agent ${res.agentId} PAUSED — waiting for user to complete a hand-action]\n\nThe sub-agent already messaged the user with what to do. DO NOT relay anything else for this turn — return an empty assistant message. Boop will re-spawn the agent when the user replies.`,
+          );
+        }
         return runtimeText(`[agent ${res.agentId} ${res.status}]\n\n${redactPhoneNumbers(res.result)}`);
       },
     ),
@@ -564,6 +654,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
               "mcp__boop-draft-decisions__list_drafts",
               "mcp__boop-draft-decisions__send_draft",
               "mcp__boop-draft-decisions__reject_draft",
+              "mcp__boop-pending__clear_pending_continuation",
               "mcp__boop-ack__send_ack",
               "mcp__boop-self__get_config",
               "mcp__boop-self__set_runtime",
@@ -615,8 +706,12 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   // output` or `no output)` with one stray paren from sneaking through.
   const placeholder =
     /^(?:\(\s*no (?:output|reply|response|content)\s*\)|no (?:output|reply|response|content))\.?$/i;
-  if (!reply || placeholder.test(reply)) {
-    console.warn(`[turn ${tag}] empty/placeholder reply (${JSON.stringify(reply)}) — using fallback`);
+  if (placeholder.test(reply)) reply = "";
+  // When a sub-agent paused for user action it already sent its own message —
+  // returning empty makes the caller skip the iMessage send entirely, so no
+  // fallback here.
+  if (!reply && !dispatcherSilent) {
+    console.warn(`[turn ${tag}] empty/placeholder reply — using fallback`);
     // Frame as model-side hiccup, not user error — the placeholder fires
     // when the model loses the thread mid-tool-call, the user's phrasing
     // is fine.

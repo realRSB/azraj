@@ -1,6 +1,7 @@
 import express from "express";
 import {
   authorizeToolkit,
+  ComposioKeyPermissionError,
   ComposioNeedsAuthConfigError,
   CURATED_TOOLKITS,
   disconnectToolkit,
@@ -129,6 +130,16 @@ export function createComposioRouter(): express.Router {
         res.status(409).json({
           error: err.message,
           needsAuthConfig: true,
+          toolkit: slug,
+          setupUrl: `https://dashboard.composio.dev`,
+        });
+        return;
+      }
+      if (err instanceof ComposioKeyPermissionError) {
+        console.warn(`[composio-routes] ${slug}: API key lacks auth_configs write access`);
+        res.status(403).json({
+          error: err.message,
+          keyPermission: true,
           toolkit: slug,
           setupUrl: `https://dashboard.composio.dev`,
         });

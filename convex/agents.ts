@@ -2,7 +2,7 @@ import { mutation, query, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import { DEMO_SCAN_LIMIT, isDemoId, isDemoModeEnabled } from "./demoMode";
 
-type AgentStatus = "spawned" | "running" | "completed" | "failed" | "cancelled";
+type AgentStatus = "spawned" | "running" | "completed" | "failed" | "cancelled" | "paused";
 
 const statusV = v.union(
   v.literal("spawned"),
@@ -10,6 +10,7 @@ const statusV = v.union(
   v.literal("completed"),
   v.literal("failed"),
   v.literal("cancelled"),
+  v.literal("paused"),
 );
 
 export const create = mutation({
@@ -55,7 +56,7 @@ export const update = mutation({
       .withIndex("by_agent_id", (q) => q.eq("agentId", agentId))
       .unique();
     if (!agent) return null;
-    const completed = patch.status && ["completed", "failed", "cancelled"].includes(patch.status);
+    const completed = patch.status && ["completed", "failed", "cancelled", "paused"].includes(patch.status);
     await ctx.db.patch(agent._id, { ...patch, ...(completed ? { completedAt: Date.now() } : {}) });
     return agent._id;
   },

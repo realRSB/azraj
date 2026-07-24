@@ -13,10 +13,11 @@ import { startHeartbeatLoop } from "./heartbeat.js";
 import { startConsolidationLoop } from "./consolidation.js";
 import { cancelAgent, retryAgent } from "./execution-agent.js";
 import { createComposioRouter } from "./composio-routes.js";
+import { createBrowserRouter } from "./browser-routes.js";
+import { stopStealthChrome } from "./browser/stealth-launcher.js";
 import { ensureProactiveWatcher } from "./proactive-email.js";
 import { preloadLocalModel } from "./embeddings.js";
 import { createMemoryRouter } from "./memory-routes.js";
-import { createBrowserRouter } from "./browser-routes.js";
 import { createAppleRouter } from "./apple-routes.js";
 import { closeLocalBrowser } from "./browser/launcher.js";
 import { createChangelogRouter } from "./changelog.js";
@@ -209,12 +210,16 @@ async function main() {
     console.log(`  websocket   WS   ws://localhost:${port}/ws`);
   });
 
+  // Make sure the Chrome we own dies when the server does. tsx watch sends
+  // SIGTERM on file changes; without this Chrome leaks across reloads and
+  // the next stealth-bootstrap fights its own zombie for the profile lock.
   const signalExitCodes = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 } as const;
   let shuttingDown = false;
   for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
     process.on(sig, () => {
       if (shuttingDown) return;
       shuttingDown = true;
+      stopStealthChrome();
       closeLocalBrowser()
         .catch(() => undefined)
         .finally(() => process.exit(signalExitCodes[sig]));

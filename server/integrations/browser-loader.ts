@@ -1,15 +1,12 @@
-import { createBrowserMcp, createBrowserTools } from "../browser/tools.js";
-import { getBrowserSettings } from "../runtime-config.js";
+import { createBrowserMcp } from "../browser/tools.js";
 import { registerIntegration } from "./registry.js";
 
 export function registerBrowserIntegration(): void {
   registerIntegration({
     name: "browser",
     description:
-      "Optional local Patchright Chrome/Chromium browser with a persistent profile. Use as a fallback for sites without native integrations, login-required services, visual workflows, or bot-wall-sensitive pages.",
-    isEnabled: async () => (await getBrowserSettings()).enabled,
+      "Full web browser (real Chrome with your saved logins). Pass this to spawn_agent ONLY when no native Composio toolkit covers the task — for gmail/calendar/slack/github/notion/linear/etc., use those toolkits instead. Best for sites without a native toolkit (portals, niche SaaS, anything you've logged into via the boop profile).",
     createServer: async () => createBrowserMcp(),
-    createTools: async () => createBrowserTools(),
   });
-  console.log("[browser] registered local Patchright browser integration");
+  console.log("[browser] registered (fallback for sites without a native toolkit)");
 }

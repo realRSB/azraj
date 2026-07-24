@@ -51,10 +51,13 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "@vitejs/plugin-react": "^4.3.0",
+    "agent-browser": "^0.26.0",
+    "better-sqlite3": "^12.9.0",
     "convex": "^1.36.1",
     "cors": "^2.8.5",
     "croner": "^9.0.0",
     "dotenv": "^16.4.0",
+    "execa": "^9.6.1",
     "express": "^5.0.0",
     "prompts": "^2.4.2",
     "react": "^19.0.0",
@@ -70,6 +73,7 @@
     "patchright": "^1.59.4"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.0.0",
@@ -130,5 +134,11 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "allowScripts": {
+    "agent-browser@0.26.0": true,
+    "better-sqlite3@12.9.0": true,
+    "esbuild@0.27.0": true,
+    "esbuild@0.25.12": true
   }
 }

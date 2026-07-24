@@ -7,6 +7,7 @@ import {
   listIntegrations,
 } from "./integrations/registry.js";
 import { createDraftStagingTools } from "./draft-tools.js";
+import { createPauseMcp } from "./pause-tools.js";
 import { EMPTY_USAGE, type UsageTotals } from "./usage.js";
 import { getRuntimeConfig, type RuntimeConfig } from "./runtime-config.js";
 import { runAgentRuntime } from "./runtimes/index.js";
@@ -73,11 +74,21 @@ Research discipline:
 - Cite real URLs only — NEVER invent sources. If a page failed to load, say so.
 - Cross-check when it matters: one search is rarely enough for a claim.
 
-Local browser:
-- If the optional "browser" integration is loaded, Local browser use is enabled and it controls a local Patchright Chrome/Chromium profile on the user's machine.
-- Use browser tools only when native integrations or WebFetch/WebSearch are insufficient: login-only portals, JS-heavy apps, visual workflows, or services likely to detect bots.
-- If you hit a login, MFA, or bot wall and the task requires the user's session, call browser_request_login. It opens a visible local browser instance and returns the exact handoff message to show the user.
-- After browser_request_login, stop and tell the user what to do next. Do not claim the task is complete until they confirm they logged in.
+Tool selection priority (read this carefully):
+1. Native Composio toolkit (gmail, calendar, slack, github, notion, linear, etc.) — ALWAYS first choice when one covers the task. They're structured, fast, and reliable.
+2. WebSearch / WebFetch — for public read-only info that doesn't require login.
+3. browser_* tools (the "browser" integration) — LAST RESORT. Use ONLY when:
+     • No Composio toolkit can do the job (e.g. a site that isn't connected), OR
+     • The task genuinely needs a real logged-in browser (a JS-heavy app, a visual layout question, scraping behind a login that has no API).
+   If a Gmail task lands in your kit and you have both gmail and browser, USE GMAIL. Do not open Gmail in the browser. Same for any other connected toolkit.
+   When you do use the browser: call browser_snapshot (cheap, returns refs) before browser_screenshot (expensive). Don't try to close the browser — the server reuses one shared Chrome across agents and manages its lifecycle.
+
+Pause for user (browser flows that need a sign-in):
+- If you open a site and hit a login/auth wall, OAuth screen, captcha, 2FA prompt, or any other roadblock that needs the human to do something by hand, do NOT give up and do NOT try to brute-force past it. Call pause_for_user with:
+    • message: a friendly 1-2 sentence prompt referencing the open Chrome window ("Opened Chase login — sign in via the Chrome window I just popped, then reply when ready.")
+    • resume_task: a complete, standalone task description for the fresh sub-agent that picks up after the user confirms ("The user has now logged into chase.com. Look up their current checking balance and report it.")
+- After calling pause_for_user, RETURN immediately with an empty reply. The dispatcher knows not to relay anything; the user already got your message. Boop re-spawns a fresh agent (with the same browser session — your tabs persist) when they reply.
+- ONLY use pause_for_user for genuine hand-action requirements. Don't use it for "I need clarification on the task" — work with what you have or ask in your normal reply.
 
 Apple data:
 - If the "apple" integration is loaded, its tools return read-only local Apple data from the user's Mac. iMessage reads run from the local server with Full Disk Access; Apple Notes and Apple Reminders read from the local server with macOS Automation permission; Apple Calendar uses the optional Apple bridge. They never modify anything.
@@ -120,7 +131,7 @@ export type SpawnExecutionAgentOpts = SpawnOptions;
 export interface SpawnResult {
   agentId: string;
   result: string;
-  status: "completed" | "failed" | "cancelled";
+  status: "completed" | "failed" | "cancelled" | "paused";
 }
 
 export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promise<SpawnResult> {
@@ -157,13 +168,28 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
   const draftTools = opts.conversationId ? createDraftStagingTools(opts.conversationId) : [];
   const integrationServers =
     runtimeConfig.runtime === "claude"
-      ? await buildMcpServersForIntegrations(opts.integrations, opts.conversationId)
+      ? await buildMcpServersForIntegrations(opts.integrations, opts.conversationId, agentId)
       : {};
   const integrationTools =
     runtimeConfig.runtime === "codex"
       ? await buildRuntimeToolsForIntegrations(opts.integrations, opts.conversationId)
       : [];
-  const mcpServers = integrationServers;
+  // Pause-and-resume is an MCP server, so it rides along on the claude
+  // runtime only; codex sub-agents simply don't get the pause tool.
+  const pausedFlag = { paused: false };
+  const pauseServer =
+    opts.conversationId && runtimeConfig.runtime === "claude"
+      ? createPauseMcp({
+          conversationId: opts.conversationId,
+          agentId,
+          integrations: opts.integrations,
+          pausedFlag,
+        })
+      : undefined;
+  const mcpServers = {
+    ...integrationServers,
+    ...(pauseServer ? { "boop-pause": pauseServer } : {}),
+  };
   const runtimeTools = [...draftTools, ...integrationTools];
   const runtimeToolNamespaces = [...new Set(integrationTools.map((tool) => tool.namespace))];
   const allowedTools = [
@@ -177,7 +203,7 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
 
   let buffer = "";
   let usage: UsageTotals = { ...EMPTY_USAGE };
-  let status: "completed" | "failed" | "cancelled" = "completed";
+  let status: "completed" | "failed" | "cancelled" | "paused" = "completed";
   let errorMsg: string | undefined;
 
   try {
@@ -237,6 +263,13 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
     });
   } finally {
     running.delete(agentId);
+  }
+
+  // pause_for_user wins over the natural "completed" status — the tool already
+  // sent the user a message and saved a continuation; the dispatcher should
+  // skip its normal relay and stay silent for this turn.
+  if (status === "completed" && pausedFlag.paused) {
+    status = "paused";
   }
 
   const elapsed = ((Date.now() - agentStart) / 1000).toFixed(1);
