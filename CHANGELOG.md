@@ -8,6 +8,28 @@ Format:
 
 ---
 
+## Unreleased — Texting streaks + morning card
+
+- Added: per-user texting streaks. Each conversation's consecutive-day run is
+  tracked in the new Convex `streaks` table — the first message of each local
+  day (user's timezone) extends the streak, a missed day resets it, and
+  longest-run / total-days stats are kept. Pure day math lives in
+  `convex/streakLogic.ts` with unit coverage.
+- Added: a morning streak card, MMS'd to each user once per day at a
+  configurable local hour (`BOOP_STREAK_MORNING_HOUR`, default 8;
+  `BOOP_STREAK_ENABLED=false` to turn off). The card is rendered server-side
+  with sharp — the streak number blended over real landscape photography with
+  a milestone-aware coach line, plus a "streak reset" comeback variant.
+- Added: `npm run streak:backgrounds` fetches a curated set of
+  Windows-Spotlight-style landscape photos (Unsplash License via Lorem
+  Picsum) into gitignored `assets/streak-backgrounds/`. With no photos
+  installed the card falls back to built-in vector scenery, so the feature
+  works offline out of the box.
+- Added: `GET /streak/preview.png` renders a live sample card and
+  `POST /streak/send` force-sends today's card for a conversation (manual QA).
+- Added: outbound MMS support in the Sendblue client (`sendMms`), hosting card
+  images on Convex storage's public CDN URLs.
+
 ## Unreleased — Durable dev supervisor
 
 - Fixed: `npm run dev` no longer tears the whole stack down when a single child (server, convex, debug, or ngrok) exits non-zero. Each service is now supervised independently and restarted with exponential backoff (capped at 30s). A crash-loop (more than 5 restarts within 60s) stops retrying that one service and leaves the rest of the stack — dashboard, logs — running so you can still debug.

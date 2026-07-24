@@ -18,3 +18,6 @@ data/
 debug/dist/
 .cache/
 .tsbuildinfo
+# Streak-card photo backgrounds are fetched via scripts/fetch-streak-backgrounds.mjs
+# (Unsplash License) — don't commit the third-party binaries.
+assets/streak-backgrounds/

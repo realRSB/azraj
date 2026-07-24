@@ -24,6 +24,7 @@ import {
   fetchStoredBytes,
 } from "./images/content-blocks.js";
 import { redactPhoneNumbers } from "./privacy.js";
+import { touchStreak } from "./streak/service.js";
 
 export const INTERACTION_SYSTEM = `You are Azraj, an AI accountability coach the user texts from iMessage.
 
@@ -418,6 +419,12 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     conversationId: opts.conversationId,
     content: opts.content,
   });
+
+  // Count this as a texting day for the streak. Fire-and-forget and only for
+  // real user turns (a proactive notice isn't the user showing up).
+  if (opts.kind !== "proactive") {
+    void touchStreak(opts.conversationId);
+  }
 
   const pendingContinuation = await convex.query(api.pendingContinuations.get, {
     conversationId: opts.conversationId,

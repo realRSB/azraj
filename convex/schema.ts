@@ -298,6 +298,25 @@ export default defineSchema({
     verifiedOk: v.optional(v.boolean()),
   }).index("by_service_profile", ["service", "sourceProfile"]).index("by_service", ["service"]),
 
+  // Per-user texting streak. One row per conversation (i.e. per phone number
+  // in `sms:+1…` form). A "day" is counted in the user's timezone at the time
+  // they text — `lastActiveDate` / `lastCardDate` are YYYY-MM-DD strings in
+  // that zone so day-boundary math never depends on the host's clock.
+  streaks: defineTable({
+    conversationId: v.string(),
+    currentStreak: v.number(),
+    longestStreak: v.number(),
+    // Total distinct days the user has ever texted (a lifetime stat, not reset
+    // when a streak breaks).
+    totalDays: v.number(),
+    lastActiveDate: v.string(),
+    // The local date of the most recent morning card we sent, so the morning
+    // loop delivers at most one card per day even across restarts.
+    lastCardDate: v.optional(v.string()),
+    timezone: v.string(),
+    updatedAt: v.number(),
+  }).index("by_conversation", ["conversationId"]),
+
   automationRuns: defineTable({
     runId: v.string(),
     automationId: v.string(),
