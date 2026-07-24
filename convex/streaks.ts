@@ -47,7 +47,7 @@ export const touch = mutation({
         updatedAt: now,
       });
       const row = await ctx.db.get(id);
-      return { row, advanced: true, milestone: true };
+      return { row, advanced: true, milestone: true, reset: false };
     }
 
     const next = advanceStreak(existing, args.today);
@@ -58,7 +58,7 @@ export const touch = mutation({
         await ctx.db.patch(existing._id, { timezone: args.timezone, updatedAt: now });
       }
       const row = await ctx.db.get(existing._id);
-      return { row, advanced: false, milestone: false };
+      return { row, advanced: false, milestone: false, reset: false };
     }
 
     await ctx.db.patch(existing._id, {
@@ -70,7 +70,12 @@ export const touch = mutation({
       updatedAt: now,
     });
     const row = await ctx.db.get(existing._id);
-    return { row, advanced: true, milestone: next.currentStreak === next.longestStreak };
+    return {
+      row,
+      advanced: true,
+      milestone: next.currentStreak === next.longestStreak,
+      reset: next.reset,
+    };
   },
 });
 

@@ -24,6 +24,7 @@ export interface StreakAdvance {
   longestStreak: number;
   totalDays: number;
   changed: boolean; // false when today was already counted
+  reset: boolean; // true when a 2+ day gap dropped the streak back to 1
 }
 
 // Apply a texting day to a prior streak state. `null` prev means first-ever
@@ -31,7 +32,7 @@ export interface StreakAdvance {
 // extends the streak; any gap of 2+ days resets it to 1.
 export function advanceStreak(prev: StreakState | null, today: string): StreakAdvance {
   if (!prev) {
-    return { currentStreak: 1, longestStreak: 1, totalDays: 1, changed: true };
+    return { currentStreak: 1, longestStreak: 1, totalDays: 1, changed: true, reset: false };
   }
   const diff = dayDiff(prev.lastActiveDate, today);
   if (diff <= 0) {
@@ -40,11 +41,18 @@ export function advanceStreak(prev: StreakState | null, today: string): StreakAd
       longestStreak: prev.longestStreak,
       totalDays: prev.totalDays,
       changed: false,
+      reset: false,
     };
   }
   const currentStreak = diff === 1 ? prev.currentStreak + 1 : 1;
   const longestStreak = Math.max(prev.longestStreak, currentStreak);
-  return { currentStreak, longestStreak, totalDays: prev.totalDays + 1, changed: true };
+  return {
+    currentStreak,
+    longestStreak,
+    totalDays: prev.totalDays + 1,
+    changed: true,
+    reset: diff > 1,
+  };
 }
 
 export type CardState = "today" | "alive" | "broken";
