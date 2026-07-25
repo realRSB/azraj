@@ -1,7 +1,7 @@
 import express from "express";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
-import { renderStreakCardPng, type StreakCardState } from "./streak/card.js";
+import { renderStreakCard, type StreakCardState } from "./streak/card.js";
 import { sendStreakCard } from "./streak/service.js";
 import { getUserTimezone } from "./timezone-config.js";
 
@@ -27,8 +27,9 @@ export function createStreakRouter(): express.Router {
       const state = (String(req.query.state ?? "alive") as StreakCardState) || "alive";
       const longest = Number(req.query.longest ?? Math.max(streak, 1));
       const scene = typeof req.query.scene === "string" ? req.query.scene : undefined;
+      const reset = req.query.reset === "true";
       const tz = await getUserTimezone();
-      const png = await renderStreakCardPng({
+      const { buffer, contentType } = await renderStreakCard({
         streak,
         longest,
         state,
@@ -36,10 +37,12 @@ export function createStreakRouter(): express.Router {
         seed: typeof req.query.seed === "string" ? req.query.seed : undefined,
         scene,
         usePhotos: req.query.photos !== "false",
+        reset,
+        format: req.query.format === "jpeg" ? "jpeg" : "png",
       });
-      res.setHeader("Content-Type", "image/png");
+      res.setHeader("Content-Type", contentType);
       res.setHeader("Cache-Control", "no-store");
-      res.end(png);
+      res.end(buffer);
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

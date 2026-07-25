@@ -5,6 +5,7 @@ import { createMemoryTools } from "./memory/tools.js";
 import { extractAndStore } from "./memory/extract.js";
 import { spawnExecutionAgent } from "./execution-agent.js";
 import { listEnabledIntegrations } from "./integrations/registry.js";
+import { createAccountabilityTools } from "./accountability-tools.js";
 import { createAutomationTools } from "./automation-tools.js";
 import { createDraftDecisionTools } from "./draft-tools.js";
 import { createSelfTools } from "./self-tools.js";
@@ -59,18 +60,19 @@ Core identity:
 
 Accountability workflow:
 - Morning planning: ask for today's goals and a short journal-style check-in: energy, blockers, mood, and what would make the day count.
-- Planning: turn vague goals into concrete daily objectives with verbs, scope, and a realistic first step. If the user's plan is too broad, narrow it.
-- Progress check-ins: afternoon or evening, ask whether they started, what progress was made, what's stuck, and what one next move they will do now.
-- Night review: ask what was completed, what slipped, why it slipped, and what tomorrow's adjustment is. Help them extract the lesson without letting them dodge accountability.
+- Planning: turn vague goals into concrete daily objectives with verbs, scope, and a realistic first step. If the user's plan is too broad, narrow it. When the user gives today's goals or asks to plan the day, use create_daily_contract before replying.
+- Progress check-ins: afternoon or evening, use get_daily_contract, ask whether they started, what progress was made, what's stuck, and what one next move they will do now. If they report progress, use update_daily_progress.
+- Night review: use get_daily_contract, ask what was completed, what slipped, why it slipped, and what tomorrow's adjustment is. When the user answers, use record_night_review. Help them extract the lesson without letting them dodge accountability.
 - General goals: when the user shares a durable goal like "get healthier" or "build my company", recall memory, write durable goal/context memories, then propose daily actionable objectives.
 - Weekly mindset + person of the week: Azraj generates and delivers this automatically on the user's chosen day — you do NOT research it or spawn_agent for it. When the user answers the weekly onboarding question, or asks to set or change WHEN they get it (a day + time, e.g. "sunday 7pm"), call set_weekly_schedule. That is the only weekly action you take; do not spawn a sub-agent for it.
-- Use create_automation for recurring morning, progress, night, or weekly check-ins. Do not invent a scheduler or state table.
+- Use create_daily_contract for daily state. It should ensure the default recurring midday, evening, and night check-ins exist unless the user says not to. Use create_automation directly for other recurring morning, progress, night, or weekly check-ins. Do not invent another scheduler.
 - Use write_memory for durable goals, recurring patterns, preferences, weekly themes, reflections, and repeated blockers.
 - Scheduled accountability check-ins are automations, not drafts. If the user asks "check in with me at 11:30", "remind me this afternoon", or "hold me accountable later", use create_automation. Never stage an iMessage check-in as a draft and ask the user to "send" it.
 
 Your only tools:
 - send_ack (short immediate acknowledgment before long-running work)
 - recall / write_memory (durable memory for this user)
+- create_daily_contract / get_daily_contract / update_daily_progress / record_night_review (daily accountability state)
 - spawn_agent (dispatches a sub-agent that CAN touch the world)
 - create_automation / list_automations / toggle_automation / delete_automation
 - set_weekly_schedule (save the day + time for the user's weekly mindset drop)
@@ -576,6 +578,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
 
   const tools = [
     ...createMemoryTools(opts.conversationId),
+    ...createAccountabilityTools(opts.conversationId),
     ...createAutomationTools(opts.conversationId),
     ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
     ...createSelfTools(),
@@ -733,6 +736,10 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
             : [
                 "mcp__boop-memory__write_memory",
                 "mcp__boop-memory__recall",
+                "mcp__boop-accountability__create_daily_contract",
+                "mcp__boop-accountability__get_daily_contract",
+                "mcp__boop-accountability__update_daily_progress",
+                "mcp__boop-accountability__record_night_review",
                 "mcp__boop-spawn__spawn_agent",
                 "mcp__boop-automations__create_automation",
                 "mcp__boop-automations__list_automations",

@@ -41,6 +41,16 @@ const OPENAI_STANDARD_TOKEN_PRICES: TokenPrice[] = [
   { model: "gpt-5", inputPerMillion: 1.25, cachedInputPerMillion: 0.125, outputPerMillion: 10 },
 ];
 
+const ANTHROPIC_STANDARD_TOKEN_PRICES: TokenPrice[] = [
+  { model: "claude-fable-5", inputPerMillion: 10, cachedInputPerMillion: 1, outputPerMillion: 50 },
+  { model: "claude-opus-5", inputPerMillion: 5, cachedInputPerMillion: 0.5, outputPerMillion: 25 },
+  { model: "claude-opus-4", inputPerMillion: 5, cachedInputPerMillion: 0.5, outputPerMillion: 25 },
+  { model: "claude-sonnet-5", inputPerMillion: 3, cachedInputPerMillion: 0.3, outputPerMillion: 15 },
+  { model: "claude-sonnet-4", inputPerMillion: 3, cachedInputPerMillion: 0.3, outputPerMillion: 15 },
+  { model: "claude-haiku-4-5", inputPerMillion: 1, cachedInputPerMillion: 0.1, outputPerMillion: 5 },
+  { model: "claude-haiku", inputPerMillion: 1, cachedInputPerMillion: 0.1, outputPerMillion: 5 },
+];
+
 function priceForOpenAIModel(model: string): TokenPrice | null {
   const normalized = model.trim().toLowerCase();
   if (!normalized) return null;
@@ -59,6 +69,37 @@ export function estimateOpenAiCostUsd(usage: Omit<UsageTotals, "costUsd">): numb
   if (!price) return 0;
 
   // OpenAI reports cached input as a subset of total input tokens.
+  const cachedInputTokens = Math.max(0, usage.cacheReadTokens);
+  const uncachedInputTokens = Math.max(
+    0,
+    usage.inputTokens - cachedInputTokens + usage.cacheCreationTokens,
+  );
+
+  return (
+    (uncachedInputTokens * price.inputPerMillion +
+      cachedInputTokens * price.cachedInputPerMillion +
+      usage.outputTokens * price.outputPerMillion) /
+    1_000_000
+  );
+}
+
+function priceForAnthropicModel(model: string): TokenPrice | null {
+  const normalized = model.trim().toLowerCase();
+  if (!normalized) return null;
+  const exact = ANTHROPIC_STANDARD_TOKEN_PRICES.find((price) => price.model === normalized);
+  if (exact) return exact;
+  return (
+    [...ANTHROPIC_STANDARD_TOKEN_PRICES]
+      .sort((a, b) => b.model.length - a.model.length)
+      .find((price) => normalized.startsWith(`${price.model}-`) || normalized.startsWith(price.model)) ??
+    null
+  );
+}
+
+export function estimateAnthropicCostUsd(usage: Omit<UsageTotals, "costUsd">): number {
+  const price = priceForAnthropicModel(usage.model);
+  if (!price) return 0;
+
   const cachedInputTokens = Math.max(0, usage.cacheReadTokens);
   const uncachedInputTokens = Math.max(
     0,

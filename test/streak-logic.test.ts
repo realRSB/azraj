@@ -32,6 +32,7 @@ describe("advanceStreak", () => {
       longestStreak: 1,
       totalDays: 1,
       changed: true,
+      reset: false,
     });
   });
 
@@ -55,6 +56,7 @@ describe("advanceStreak", () => {
       longestStreak: 12,
       totalDays: 41,
       changed: true,
+      reset: false,
     });
   });
 
@@ -74,7 +76,14 @@ describe("advanceStreak", () => {
       longestStreak: 12,
       totalDays: 41,
       changed: true,
+      reset: true,
     });
+  });
+
+  it("flags reset only on a gap, not on an extension or first day", () => {
+    expect(advanceStreak(null, "2026-07-23").reset).toBe(false);
+    expect(advanceStreak(base, "2026-07-23").reset).toBe(false); // consecutive
+    expect(advanceStreak(base, "2026-07-25").reset).toBe(true); // 2-day gap
   });
 
   it("builds a 9-day streak from 9 consecutive days of texting", () => {

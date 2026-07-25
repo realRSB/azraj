@@ -7,6 +7,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { RuntimeRunRequest, RuntimeRunResult, RuntimeTool } from "./types.js";
 import { aggregateUsageFromResult, EMPTY_USAGE } from "../usage.js";
+import { runAnthropicApiAgent, shouldUseAnthropicApiTransport } from "./anthropic-api.js";
 
 type ClaudePrompt =
   | string
@@ -53,6 +54,10 @@ export function createClaudeMcpServer(
 }
 
 export async function runClaudeAgent(request: RuntimeRunRequest): Promise<RuntimeRunResult> {
+  if (shouldUseAnthropicApiTransport()) {
+    return runAnthropicApiAgent(request);
+  }
+
   const runtimeServers = new Map<string, RuntimeTool[]>();
   for (const runtimeTool of request.tools) {
     const list = runtimeServers.get(runtimeTool.namespace) ?? [];
@@ -82,6 +87,7 @@ export async function runClaudeAgent(request: RuntimeRunRequest): Promise<Runtim
       mcpServers,
       allowedTools: request.allowedTools,
       disallowedTools: request.disallowedTools,
+      env: process.env,
       ...(request.mode === "execution" ? { settingSources: ["project"] as const } : {}),
       permissionMode: "bypassPermissions",
       abortController: request.abortController,

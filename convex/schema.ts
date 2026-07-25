@@ -317,6 +317,53 @@ export default defineSchema({
     updatedAt: v.number(),
   }).index("by_conversation", ["conversationId"]),
 
+  dailyPlans: defineTable({
+    conversationId: v.string(),
+    localDate: v.string(),
+    timezone: v.string(),
+    status: v.union(
+      v.literal("planned"),
+      v.literal("in_progress"),
+      v.literal("reviewed"),
+      v.literal("missed"),
+    ),
+    journal: v.optional(v.string()),
+    energy: v.optional(v.string()),
+    mood: v.optional(v.string()),
+    blockers: v.optional(v.string()),
+    definitionOfDone: v.optional(v.string()),
+    progressNote: v.optional(v.string()),
+    completedSummary: v.optional(v.string()),
+    slippedSummary: v.optional(v.string()),
+    lesson: v.optional(v.string()),
+    tomorrowAdjustment: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    lastProgressAt: v.optional(v.number()),
+    reviewedAt: v.optional(v.number()),
+  })
+    .index("by_conversation", ["conversationId"])
+    .index("by_conversation_and_localDate", ["conversationId", "localDate"]),
+
+  dailyObjectives: defineTable({
+    planId: v.id("dailyPlans"),
+    conversationId: v.string(),
+    localDate: v.string(),
+    text: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("started"),
+      v.literal("done"),
+      v.literal("slipped"),
+    ),
+    proof: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_plan", ["planId"])
+    .index("by_conversation_and_localDate", ["conversationId", "localDate"]),
+
   automationRuns: defineTable({
     runId: v.string(),
     automationId: v.string(),

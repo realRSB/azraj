@@ -19,6 +19,12 @@ export interface StreakCardInput {
   scene?: string;
   // Set false to ignore installed photos and always use the vector scenes.
   usePhotos?: boolean;
+  // True when today's text restarted the streak after a 2+ day gap. Shifts the
+  // copy to a comeback tone instead of a plain "day one".
+  reset?: boolean;
+  // Output encoding. JPEG (default for sends) keeps the photo card well under
+  // MMS size limits; PNG stays crisp for on-screen previews.
+  format?: "png" | "jpeg";
 }
 
 // Font stack: Segoe UI on the maintainer's Windows box, Helvetica/Arial
@@ -41,6 +47,12 @@ function subline(input: StreakCardInput): string {
     return longest > 1
       ? `your best was ${longest} days — text me, let's rebuild it.`
       : `every streak starts with day one. text me today.`;
+  }
+  // Comeback after a gap: they're back to day 1, but acknowledge the history.
+  if (input.reset) {
+    return longest > 1
+      ? `back at it — your best was ${longest}. let's beat it.`
+      : `back at it — day one. let's build.`;
   }
   const alreadyIn = state === "today";
   if (streak >= 100) return "triple digits. you're built different.";
@@ -140,11 +152,19 @@ async function loadBase(input: StreakCardInput): Promise<sharp.Sharp> {
   return sharp(Buffer.from(sceneToSvg(scene)));
 }
 
-export async function renderStreakCardPng(input: StreakCardInput): Promise<Buffer> {
+export interface RenderedCard {
+  buffer: Buffer;
+  contentType: string;
+}
+
+export async function renderStreakCard(input: StreakCardInput): Promise<RenderedCard> {
   const base = await loadBase(input);
   const overlay = Buffer.from(buildOverlaySvg(input));
-  return await base
-    .composite([{ input: overlay, top: 0, left: 0 }])
-    .png()
-    .toBuffer();
+  const composited = base.composite([{ input: overlay, top: 0, left: 0 }]);
+  if (input.format === "jpeg") {
+    // quality 82 lands a photo card around ~300–450KB — an order of magnitude
+    // smaller than PNG, so the Convex upload and the MMS both stay reliable.
+    return { buffer: await composited.jpeg({ quality: 82 }).toBuffer(), contentType: "image/jpeg" };
+  }
+  return { buffer: await composited.png().toBuffer(), contentType: "image/png" };
 }

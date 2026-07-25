@@ -125,11 +125,22 @@ export function isPublicServerRequest(request: RequestLike): boolean {
   }
 
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
+  const method = request.method ?? "GET";
+  const readsPublicWeb = method === "GET" || method === "HEAD";
   return (
-    (request.method === "GET" && normalizedPath === "/health") ||
-    (request.method === "POST" && normalizedPath === "/sendblue/webhook") ||
-    (request.method === "POST" && normalizedPath === "/composio/webhook") ||
-    (request.method === "POST" && normalizedPath === "/public-auth/start") ||
-    (request.method === "POST" && normalizedPath === "/public-auth/verify")
+    (readsPublicWeb &&
+      (normalizedPath === "/" ||
+        normalizedPath === "/dashboard" ||
+        normalizedPath === "/index.html" ||
+        normalizedPath.startsWith("/assets/"))) ||
+    (method === "GET" && normalizedPath === "/health") ||
+    (method === "POST" && normalizedPath === "/sendblue/webhook") ||
+    (method === "POST" && normalizedPath === "/composio/webhook") ||
+    (method === "POST" && normalizedPath === "/public-auth/start") ||
+    (method === "POST" && normalizedPath === "/public-auth/verify") ||
+    (method === "POST" && normalizedPath === "/public-auth/dashboard") ||
+    (method === "POST" && normalizedPath === "/api/public-auth/start") ||
+    (method === "POST" && normalizedPath === "/api/public-auth/verify") ||
+    (method === "POST" && normalizedPath === "/api/public-auth/dashboard")
   );
 }

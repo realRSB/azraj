@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import { useQuery } from "convex/react";
-import { api } from "../../../convex/_generated/api.js";
 import imessageLogo from "./assets/imessage-logo.png";
 
 declare global {
@@ -16,7 +14,7 @@ const SESSION_KEY = "azraj.publicSessionToken";
 
 type Page = "home" | "dashboard";
 type ConnectStep = "phone" | "code" | "connected";
-type DashboardView = "overview" | "messages" | "memory" | "checkins" | "usage";
+type DashboardView = "overview" | "contract" | "messages" | "memory" | "checkins" | "usage";
 
 type PublicDashboard = {
   user: {
@@ -42,6 +40,14 @@ type PublicDashboard = {
     automations: {
       total: number;
       enabled: number;
+    };
+    accountability: {
+      plans: number;
+      reviewed: number;
+      objectives: number;
+      done: number;
+      slipped: number;
+      activeStatus?: "planned" | "in_progress" | "reviewed" | "missed";
     };
     usage: {
       totalCost: number;
@@ -79,6 +85,36 @@ type PublicDashboard = {
     timezone?: string;
     enabled: boolean;
     nextRunAt?: number;
+  }>;
+  accountability: {
+    activePlan: AccountabilityPlan | null;
+    recentPlans: AccountabilityPlan[];
+  };
+};
+
+type AccountabilityPlan = {
+  _id: string;
+  localDate: string;
+  timezone: string;
+  status: "planned" | "in_progress" | "reviewed" | "missed";
+  journal?: string;
+  energy?: string;
+  mood?: string;
+  blockers?: string;
+  definitionOfDone?: string;
+  progressNote?: string;
+  completedSummary?: string;
+  slippedSummary?: string;
+  lesson?: string;
+  tomorrowAdjustment?: string;
+  updatedAt: number;
+  reviewedAt?: number;
+  objectives: Array<{
+    _id: string;
+    text: string;
+    status: "pending" | "started" | "done" | "slipped";
+    proof?: string;
+    notes?: string;
   }>;
 };
 
@@ -142,6 +178,16 @@ function maskPhone(phone: string) {
   return `••• ${digits.slice(-4)}`;
 }
 
+async function parseJsonResponse(res: Response) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error("server returned an invalid response");
+  }
+}
+
 export function App() {
   const [page, setPage] = useState<Page>(() =>
     window.location.pathname === "/dashboard" ? "dashboard" : "home",
@@ -159,11 +205,9 @@ export function App() {
   const [copied, setCopied] = useState<"number" | "message" | null>(null);
   const [activeStep, setActiveStep] = useState(0);
   const [cursor, setCursor] = useState({ x: -100, y: -100, active: false });
-
-  const dashboard = useQuery(
-    api.publicUsers.dashboard,
-    sessionToken ? { sessionToken } : "skip",
-  ) as PublicDashboard | null | undefined;
+  const [dashboard, setDashboard] = useState<PublicDashboard | null | undefined>(
+    sessionToken ? undefined : null,
+  );
 
   useEffect(() => {
     let effect: { destroy: () => void } | undefined;
@@ -248,6 +292,47 @@ export function App() {
     if (sessionToken) setConnectStep("connected");
   }, [sessionToken]);
 
+  useEffect(() => {
+    if (!sessionToken) {
+      setDashboard(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadDashboard({ showLoading }: { showLoading: boolean }) {
+      if (showLoading) setDashboard(undefined);
+      try {
+        const res = await fetch("/api/public-auth/dashboard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionToken }),
+        });
+        const data = await parseJsonResponse(res);
+        if (!res.ok) {
+          if (!cancelled) setDashboard(null);
+          return;
+        }
+        if (!cancelled) {
+          setDashboard(data.dashboard as PublicDashboard);
+        }
+      } catch {
+        if (!cancelled) setDashboard(null);
+      }
+    }
+
+    void loadDashboard({ showLoading: true });
+    const timer = window.setInterval(
+      () => void loadDashboard({ showLoading: false }),
+      5000,
+    );
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [sessionToken]);
+
   function navigate(nextPage: Page) {
     setPage(nextPage);
     window.history.pushState(null, "", nextPage === "dashboard" ? "/dashboard" : "/");
@@ -280,10 +365,10 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "couldn't send code");
-      setVerifiedPhone(data.phoneE164);
-      setDevCode(data.devCode ?? null);
+      const data = await parseJsonResponse(res);
+      if (!res.ok) throw new Error(String(data.error ?? "couldn't send code"));
+      setVerifiedPhone(String(data.phoneE164 ?? ""));
+      setDevCode(typeof data.devCode === "string" ? data.devCode : null);
       setConnectStep("code");
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : String(err));
@@ -302,9 +387,9 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: verifiedPhone || phone, code }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "code didn't work");
-      setSessionToken(data.sessionToken);
+      const data = await parseJsonResponse(res);
+      if (!res.ok) throw new Error(String(data.error ?? "code didn't work"));
+      setSessionToken(String(data.sessionToken ?? ""));
       setConnectStep("connected");
       setCode("");
     } catch (err) {
@@ -683,6 +768,7 @@ function UserDashboard({
   const dailyMax = Math.max(...dashboard.metrics.dailyBuckets.map((bucket) => bucket.costUsd), 0.01);
   const navItems: Array<{ id: DashboardView; label: string; value: string }> = [
     { id: "overview", label: "Dashboard", value: formatNumber(dashboard.metrics.messages) },
+    { id: "contract", label: "Contract", value: dashboard.metrics.accountability.activeStatus ?? "none" },
     { id: "messages", label: "Messages", value: formatNumber(dashboard.recentMessages.length) },
     { id: "memory", label: "Memory", value: formatNumber(dashboard.metrics.memories.total) },
     { id: "checkins", label: "Check-ins", value: formatNumber(dashboard.metrics.automations.enabled) },
@@ -763,6 +849,11 @@ function UserDashboard({
                 value={formatNumber(dashboard.metrics.automations.enabled)}
                 detail={`${dashboard.metrics.automations.total} scheduled`}
               />
+              <MetricCard
+                label="contract"
+                value={formatNumber(dashboard.metrics.accountability.done)}
+                detail={`${dashboard.metrics.accountability.objectives} objectives / ${dashboard.metrics.accountability.slipped} slipped`}
+              />
             </div>
           )}
 
@@ -789,6 +880,14 @@ function UserDashboard({
           )}
 
           <div className="dashboard-main">
+            {(view === "overview" || view === "contract") && (
+              <DashboardAccountability
+                activePlan={dashboard.accountability.activePlan}
+                recentPlans={dashboard.accountability.recentPlans}
+                expanded={view === "contract"}
+              />
+            )}
+
             {(view === "overview" || view === "messages") && (
               <DashboardMessages
                 messages={dashboard.recentMessages}
@@ -830,6 +929,7 @@ function UserDashboard({
                 </div>
               </section>
             )}
+
           </div>
         </main>
       </div>
@@ -846,6 +946,112 @@ function PanelHeader({ eyebrow, title, meta }: { eyebrow: string; title: string;
       </div>
       <span>{meta}</span>
     </div>
+  );
+}
+
+function DashboardAccountability({
+  activePlan,
+  recentPlans,
+  expanded,
+}: {
+  activePlan: PublicDashboard["accountability"]["activePlan"];
+  recentPlans: PublicDashboard["accountability"]["recentPlans"];
+  expanded: boolean;
+}) {
+  const doneCount = activePlan?.objectives.filter((objective) => objective.status === "done").length ?? 0;
+  const objectiveCount = activePlan?.objectives.length ?? 0;
+
+  return (
+    <section className={`dashboard-panel accountability-panel ${expanded ? "dashboard-panel-wide" : ""}`}>
+      <PanelHeader
+        eyebrow="daily contract"
+        title={activePlan ? activePlan.localDate : "No contract yet"}
+        meta={activePlan ? `${doneCount}/${objectiveCount} done · ${activePlan.status}` : "text azraj to plan"}
+      />
+
+      {activePlan ? (
+        <div className="accountability-stack">
+          <div className="contract-summary">
+            {activePlan.definitionOfDone && (
+              <article>
+                <span>definition of done</span>
+                <p>{activePlan.definitionOfDone}</p>
+              </article>
+            )}
+            {(activePlan.energy || activePlan.mood || activePlan.blockers) && (
+              <article>
+                <span>check-in</span>
+                <p>
+                  {[activePlan.energy, activePlan.mood, activePlan.blockers]
+                    .filter(Boolean)
+                    .join(" · ")}
+                </p>
+              </article>
+            )}
+          </div>
+
+          <div className="objective-list">
+            {activePlan.objectives.map((objective, index) => (
+              <article key={objective._id} data-status={objective.status}>
+                <div>
+                  <strong>{index + 1}</strong>
+                  <p>{objective.text}</p>
+                </div>
+                <span>{objective.status}</span>
+                {(objective.proof || objective.notes) && (
+                  <small>{objective.proof || objective.notes}</small>
+                )}
+              </article>
+            ))}
+          </div>
+
+          {(activePlan.completedSummary || activePlan.slippedSummary || activePlan.lesson || activePlan.tomorrowAdjustment) && (
+            <div className="review-grid">
+              {activePlan.completedSummary && (
+                <article>
+                  <span>completed</span>
+                  <p>{activePlan.completedSummary}</p>
+                </article>
+              )}
+              {activePlan.slippedSummary && (
+                <article>
+                  <span>slipped</span>
+                  <p>{activePlan.slippedSummary}</p>
+                </article>
+              )}
+              {activePlan.lesson && (
+                <article>
+                  <span>lesson</span>
+                  <p>{activePlan.lesson}</p>
+                </article>
+              )}
+              {activePlan.tomorrowAdjustment && (
+                <article>
+                  <span>tomorrow</span>
+                  <p>{activePlan.tomorrowAdjustment}</p>
+                </article>
+              )}
+            </div>
+          )}
+
+          {expanded && recentPlans.length > 1 && (
+            <div className="recent-contracts">
+              {recentPlans.slice(1, 8).map((plan) => (
+                <article key={plan._id}>
+                  <span>{plan.localDate}</span>
+                  <strong>{plan.objectives.filter((objective) => objective.status === "done").length}/{plan.objectives.length}</strong>
+                  <small>{plan.status}</small>
+                </article>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="dashboard-empty-line">
+          text azraj “good morning, help me plan my day” and your contract shows here.
+        </div>
+      )}
+    </section>
   );
 }
 

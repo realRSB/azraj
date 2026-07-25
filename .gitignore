@@ -8,7 +8,6 @@ build/
 *.log
 .DS_Store
 .convex/
-convex/_generated/
 data/
 *.db
 *.db-journal
