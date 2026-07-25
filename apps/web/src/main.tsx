@@ -1,10 +1,16 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App.js";
+import { ErrorBoundary } from "../../../debug/src/ErrorBoundary.js";
+import "../../../debug/src/styles.css";
 import "./styles.css";
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+const app = (
   <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+  </React.StrictMode>
 );
+
+ReactDOM.createRoot(document.getElementById("root")!).render(app);

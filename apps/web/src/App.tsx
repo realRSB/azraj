@@ -1,4 +1,27 @@
-import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type ReactNode,
+} from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  Activity01Icon,
+  AiBrain02Icon,
+  ArrowShrink02Icon,
+  CheckmarkCircle02Icon,
+  DashboardSquare01Icon,
+  MachineRobotIcon,
+  Settings01Icon,
+  WorkflowCircle03Icon,
+} from "@hugeicons/core-free-icons";
+import {
+  DashboardMetricsSurface,
+  type DashboardMetrics,
+} from "../../../debug/src/components/DashboardPanel.js";
+import boopGif from "../../../assets/boop.gif";
 import imessageLogo from "./assets/imessage-logo.png";
 
 declare global {
@@ -14,8 +37,13 @@ const SESSION_KEY = "azraj.publicSessionToken";
 
 type Page = "home" | "dashboard";
 type ConnectStep = "phone" | "code" | "connected";
-type DashboardView = "overview" | "contract" | "messages" | "memory" | "checkins" | "usage";
-
+type DashboardView =
+  | "dashboard"
+  | "messages"
+  | "memory"
+  | "automations"
+  | "accountability"
+  | "settings";
 type PublicDashboard = {
   user: {
     phoneE164: string;
@@ -36,10 +64,12 @@ type PublicDashboard = {
       running: number;
       completed: number;
       failed: number;
+      cancelled?: number;
     };
     automations: {
       total: number;
       enabled: number;
+      runs?: number;
     };
     accountability: {
       plans: number;
@@ -61,6 +91,11 @@ type PublicDashboard = {
       inputTokens: number;
       outputTokens: number;
       messages: number;
+      agentsSpawned?: number;
+      agentsCompleted?: number;
+      agentsFailed?: number;
+      agentsCancelled?: number;
+      automationRuns?: number;
     }>;
   };
   recentMessages: Array<{
@@ -118,6 +153,15 @@ type AccountabilityPlan = {
   }>;
 };
 
+const DASHBOARD_NAV: Array<{ id: DashboardView; label: string; icon: any }> = [
+  { id: "dashboard", label: "Dashboard", icon: DashboardSquare01Icon },
+  { id: "messages", label: "Messages", icon: Activity01Icon },
+  { id: "memory", label: "Memory", icon: AiBrain02Icon },
+  { id: "automations", label: "Automations", icon: WorkflowCircle03Icon },
+  { id: "accountability", label: "Accountability", icon: CheckmarkCircle02Icon },
+  { id: "settings", label: "Settings", icon: Settings01Icon },
+];
+
 const storySteps = [
   {
     label: "morning",
@@ -162,10 +206,6 @@ function setStoredSession(token: string | null) {
   }
 }
 
-function formatCurrency(value: number) {
-  return `$${value.toFixed(value < 1 ? 3 : 2)}`;
-}
-
 function formatNumber(value: number) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}m`;
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`;
@@ -176,6 +216,50 @@ function maskPhone(phone: string) {
   const digits = phone.replace(/\D/g, "");
   if (digits.length < 4) return phone;
   return `••• ${digits.slice(-4)}`;
+}
+
+function formatTimestamp(ts?: number) {
+  if (!ts) return "not scheduled";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(ts));
+}
+
+function publicDashboardToDebugMetrics(dashboard: PublicDashboard): DashboardMetrics {
+  return {
+    messages: dashboard.metrics.messages,
+    memories: dashboard.metrics.memories,
+    agents: {
+      total: dashboard.metrics.agents.total,
+      running: dashboard.metrics.agents.running,
+      completed: dashboard.metrics.agents.completed,
+      failed: dashboard.metrics.agents.failed,
+      cancelled: dashboard.metrics.agents.cancelled ?? 0,
+    },
+    cost: {
+      total: dashboard.metrics.usage.totalCost,
+    },
+    tokens: {
+      input: dashboard.metrics.usage.inputTokens,
+      output: dashboard.metrics.usage.outputTokens,
+    },
+    dailyBuckets: dashboard.metrics.dailyBuckets.map((bucket) => ({
+      day: bucket.day,
+      agentCost: bucket.costUsd,
+      inputTokens: bucket.inputTokens,
+      outputTokens: bucket.outputTokens,
+      agentsSpawned: bucket.agentsSpawned ?? 0,
+      agentsCompleted: bucket.agentsCompleted ?? 0,
+      agentsFailed: bucket.agentsFailed ?? 0,
+      agentsCancelled: bucket.agentsCancelled ?? 0,
+      automationRuns: bucket.automationRuns ?? 0,
+    })),
+    truncated: false,
+    scanLimit: 5000,
+  };
 }
 
 async function parseJsonResponse(res: Response) {
@@ -455,7 +539,6 @@ export function App() {
           dashboard={dashboard}
           sessionToken={sessionToken}
           onConnect={() => setConnectOpen(true)}
-          onHome={() => navigate("home")}
           onSignOut={signOut}
         />
       ) : (
@@ -709,17 +792,13 @@ function UserDashboard({
   dashboard,
   sessionToken,
   onConnect,
-  onHome,
   onSignOut,
 }: {
   dashboard: PublicDashboard | null | undefined;
   sessionToken: string | null;
   onConnect: () => void;
-  onHome: () => void;
   onSignOut: () => void;
 }) {
-  const [view, setView] = useState<DashboardView>("overview");
-
   if (!sessionToken) {
     return (
       <section className="public-dashboard empty-dashboard">
@@ -764,399 +843,378 @@ function UserDashboard({
     );
   }
 
-  const newestMessage = dashboard.recentMessages[0];
-  const dailyMax = Math.max(...dashboard.metrics.dailyBuckets.map((bucket) => bucket.costUsd), 0.01);
-  const navItems: Array<{ id: DashboardView; label: string; value: string }> = [
-    { id: "overview", label: "Dashboard", value: formatNumber(dashboard.metrics.messages) },
-    { id: "contract", label: "Contract", value: dashboard.metrics.accountability.activeStatus ?? "none" },
-    { id: "messages", label: "Messages", value: formatNumber(dashboard.recentMessages.length) },
-    { id: "memory", label: "Memory", value: formatNumber(dashboard.metrics.memories.total) },
-    { id: "checkins", label: "Check-ins", value: formatNumber(dashboard.metrics.automations.enabled) },
-    { id: "usage", label: "Usage", value: formatCurrency(dashboard.metrics.usage.totalCost) },
-  ];
-
   return (
-    <section className="public-dashboard dashboard-admin-surface">
-      <aside className="dashboard-sidebar">
-        <div className="dashboard-brand-block">
-          <div className="dashboard-avatar">a</div>
-          <div>
-            <h1>Azraj</h1>
-            <p>Connection healthy</p>
-          </div>
-        </div>
-
-        <nav className="dashboard-side-nav" aria-label="Dashboard sections">
-          {navItems.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              data-active={view === item.id}
-              onClick={() => setView(item.id)}
-            >
-              <span>{item.label}</span>
-              <small>{item.value}</small>
-            </button>
-          ))}
-        </nav>
-
-        <div className="dashboard-sidebar-card">
-          <p>Memory</p>
-          <div>
-            <span>{dashboard.metrics.memories.shortTerm}<small>short</small></span>
-            <span>{dashboard.metrics.memories.longTerm}<small>long</small></span>
-            <span>{dashboard.metrics.memories.permanent}<small>perm</small></span>
-          </div>
-        </div>
-
-        <div className="dashboard-sidebar-actions">
-          <button type="button" onClick={onHome}>home</button>
-          <button type="button" onClick={onSignOut}>sign out</button>
-        </div>
-      </aside>
-
-      <div className="dashboard-workspace">
-        <header className="dashboard-topbar">
-          <div>
-            <p>Azraj Dashboard</p>
-            <h2>{navItems.find((item) => item.id === view)?.label ?? "Dashboard"}</h2>
-          </div>
-          <div className="dashboard-topbar-actions">
-            <span>{maskPhone(dashboard.user.phoneE164)}</span>
-            <a href={`sms:${smsNumber(AZRAJ_NUMBER)}`}>
-              <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
-              text azraj
-            </a>
-          </div>
-        </header>
-
-        <main className="dashboard-content">
-          {(view === "overview" || view === "usage") && (
-            <div className="dashboard-grid">
-              <MetricCard label="messages" value={formatNumber(dashboard.metrics.messages)} detail="conversation rows" />
-              <MetricCard
-                label="memory"
-                value={formatNumber(dashboard.metrics.memories.total)}
-                detail={`${dashboard.metrics.memories.shortTerm} short / ${dashboard.metrics.memories.longTerm} long / ${dashboard.metrics.memories.permanent} perm`}
-              />
-              <MetricCard
-                label="usage"
-                value={formatCurrency(dashboard.metrics.usage.totalCost)}
-                detail={`${formatNumber(dashboard.metrics.usage.totalTokens)} tokens`}
-              />
-              <MetricCard
-                label="check-ins"
-                value={formatNumber(dashboard.metrics.automations.enabled)}
-                detail={`${dashboard.metrics.automations.total} scheduled`}
-              />
-              <MetricCard
-                label="contract"
-                value={formatNumber(dashboard.metrics.accountability.done)}
-                detail={`${dashboard.metrics.accountability.objectives} objectives / ${dashboard.metrics.accountability.slipped} slipped`}
-              />
-            </div>
-          )}
-
-          {(view === "overview" || view === "usage") && (
-            <section className="dashboard-panel usage-panel">
-              <PanelHeader
-                eyebrow="usage"
-                title="Daily cost"
-                meta={`${formatCurrency(dashboard.metrics.usage.totalCost)} total`}
-              />
-              <div className="usage-bars" aria-label="Daily usage cost">
-                {dashboard.metrics.dailyBuckets.length > 0 ? (
-                  dashboard.metrics.dailyBuckets.slice(-14).map((bucket) => (
-                    <div key={bucket.day} className="usage-bar">
-                      <span style={{ height: `${Math.max(8, (bucket.costUsd / dailyMax) * 100)}%` }} />
-                      <small>{bucket.day.slice(5)}</small>
-                    </div>
-                  ))
-                ) : (
-                  <div className="dashboard-empty-line">usage appears after azraj answers texts.</div>
-                )}
-              </div>
-            </section>
-          )}
-
-          <div className="dashboard-main">
-            {(view === "overview" || view === "contract") && (
-              <DashboardAccountability
-                activePlan={dashboard.accountability.activePlan}
-                recentPlans={dashboard.accountability.recentPlans}
-                expanded={view === "contract"}
-              />
-            )}
-
-            {(view === "overview" || view === "messages") && (
-              <DashboardMessages
-                messages={dashboard.recentMessages}
-                newestMessage={newestMessage}
-                expanded={view === "messages"}
-              />
-            )}
-
-            {(view === "overview" || view === "memory") && (
-              <DashboardMemory memories={dashboard.memories} expanded={view === "memory"} />
-            )}
-
-            {(view === "overview" || view === "checkins") && (
-              <DashboardAutomations
-                automations={dashboard.automations}
-                enabledCount={dashboard.metrics.automations.enabled}
-              />
-            )}
-
-            {view === "usage" && (
-              <section className="dashboard-panel">
-                <PanelHeader eyebrow="tokens" title="Breakdown" meta="current account" />
-                <div className="usage-breakdown">
-                  <MetricCard
-                    label="input"
-                    value={formatNumber(dashboard.metrics.usage.inputTokens)}
-                    detail="tokens"
-                  />
-                  <MetricCard
-                    label="output"
-                    value={formatNumber(dashboard.metrics.usage.outputTokens)}
-                    detail="tokens"
-                  />
-                  <MetricCard
-                    label="agents"
-                    value={formatNumber(dashboard.metrics.agents.total)}
-                    detail={`${dashboard.metrics.agents.running} running`}
-                  />
-                </div>
-              </section>
-            )}
-
-          </div>
-        </main>
-      </div>
+    <section className="debug-console-host" aria-label="Azraj dashboard">
+      <ConsumerDashboardShell dashboard={dashboard} onSignOut={onSignOut} />
     </section>
   );
 }
 
-function PanelHeader({ eyebrow, title, meta }: { eyebrow: string; title: string; meta: string }) {
+function ConsumerDashboardShell({
+  dashboard,
+  onSignOut,
+}: {
+  dashboard: PublicDashboard;
+  onSignOut: () => void;
+}) {
+  const [view, setView] = useState<DashboardView>("dashboard");
+  const metrics = useMemo(() => publicDashboardToDebugMetrics(dashboard), [dashboard]);
+  const currentView = DASHBOARD_NAV.find((item) => item.id === view)?.label ?? "Dashboard";
+  const isDark = true;
+  const activePlan = dashboard.accountability.activePlan;
+
   return (
-    <div className="dashboard-panel-head">
-      <div>
-        <p>{eyebrow}</p>
-        <h2>{title}</h2>
+    <div className="flex h-full bg-[#101012] text-zinc-100">
+      <nav className="flex w-[244px] shrink-0 flex-col bg-[#101012] px-3 pb-3 pt-3">
+        <div className="flex w-full items-center gap-3 rounded-2xl px-1.5 py-1 text-left">
+          <img src={boopGif} alt="Azraj" className="h-8 w-8 rounded-2xl object-cover" />
+          <div className="min-w-0">
+            <h1 className="truncate text-sm font-semibold text-zinc-100">Azraj</h1>
+            <div className="flex items-center gap-1.5 truncate text-xs text-emerald-500">
+              <span className="relative flex h-1.5 w-1.5 shrink-0">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 pulse-ring" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              </span>
+              connected
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-0.5">
+          {DASHBOARD_NAV.map((item) => (
+            <button
+              key={item.id}
+              data-active={view === item.id}
+              onClick={() => setView(item.id)}
+              className={`sidebar-nav-item flex h-8 w-full items-center gap-2 rounded-2xl px-2.5 text-left text-[12px] ${
+                view === item.id ? "text-zinc-50" : "text-zinc-400 hover:text-zinc-100"
+              }`}
+            >
+              <HugeiconsIcon icon={item.icon} size={16} className="shrink-0" />
+              <span className="truncate">{item.label}</span>
+              {item.id === "accountability" && activePlan && (
+                <span className="ml-auto h-1.5 w-1.5 rounded-full bg-emerald-400" />
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-auto space-y-3">
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-2.5">
+            <div className="mb-2 text-xs text-zinc-500">Memory</div>
+            <div className="grid grid-cols-3 gap-2">
+              <DashboardMetricPill label="Short" value={dashboard.metrics.memories.shortTerm} />
+              <DashboardMetricPill label="Long" value={dashboard.metrics.memories.longTerm} />
+              <DashboardMetricPill
+                label="Perm"
+                value={dashboard.metrics.memories.permanent}
+                color="text-amber-300"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-2 px-1">
+            <button
+              type="button"
+              onClick={() => setView("settings")}
+              className="min-w-0 truncate rounded-lg px-1.5 py-1 text-left text-[11px] text-zinc-500 transition-colors hover:bg-white/5 hover:text-zinc-300"
+            >
+              {maskPhone(dashboard.user.phoneE164)}
+            </button>
+            <button
+              type="button"
+              onClick={onSignOut}
+              className="shrink-0 rounded-xl px-2 py-1 text-[11px] font-medium text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+            >
+              sign out
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-l-[20px] border-y border-l border-white/10 bg-[#18181b] shadow-sm shadow-black/20">
+        <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-[#18181b] px-5">
+          <div>
+            <div className="text-[11px] text-zinc-500">Azraj</div>
+            <h2 className="text-sm font-medium text-zinc-100">{currentView}</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => setView("settings")}
+            className="hidden min-w-0 items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs text-zinc-400 sm:flex"
+            aria-label="Open settings"
+          >
+            <span className="h-[17px] w-[17px] shrink-0 rounded-md border border-white/10 bg-white/5" />
+            <span className="shrink-0 font-medium text-zinc-300">phone</span>
+            <span className="max-w-[180px] truncate font-mono font-medium text-zinc-200">
+              {maskPhone(dashboard.user.phoneE164)}
+            </span>
+          </button>
+        </header>
+
+        <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
+          <div key={view} className="view-shell debug-scroll h-full overflow-auto p-5">
+            {view === "dashboard" && (
+              <DashboardMetricsSurface
+                data={metrics}
+                isDark={isDark}
+                eyebrow="Accountability"
+                title="Dashboard"
+              />
+            )}
+            {view === "messages" && <MessagesView dashboard={dashboard} />}
+            {view === "memory" && <MemoryView dashboard={dashboard} />}
+            {view === "automations" && <AutomationsView dashboard={dashboard} />}
+            {view === "accountability" && <AccountabilityView dashboard={dashboard} />}
+            {view === "settings" && (
+              <SettingsView dashboard={dashboard} onSignOut={onSignOut} />
+            )}
+          </div>
+        </main>
       </div>
-      <span>{meta}</span>
     </div>
   );
 }
 
-function DashboardAccountability({
-  activePlan,
-  recentPlans,
-  expanded,
+function DashboardMetricPill({
+  label,
+  value,
+  color = "text-zinc-300",
 }: {
-  activePlan: PublicDashboard["accountability"]["activePlan"];
-  recentPlans: PublicDashboard["accountability"]["recentPlans"];
-  expanded: boolean;
+  label: string;
+  value: number;
+  color?: string;
 }) {
-  const doneCount = activePlan?.objectives.filter((objective) => objective.status === "done").length ?? 0;
-  const objectiveCount = activePlan?.objectives.length ?? 0;
-
   return (
-    <section className={`dashboard-panel accountability-panel ${expanded ? "dashboard-panel-wide" : ""}`}>
-      <PanelHeader
-        eyebrow="daily contract"
-        title={activePlan ? activePlan.localDate : "No contract yet"}
-        meta={activePlan ? `${doneCount}/${objectiveCount} done · ${activePlan.status}` : "text azraj to plan"}
-      />
+    <div className="min-w-0 text-xs">
+      <span className="text-zinc-500">{label}</span>
+      <span className={`block truncate font-mono font-semibold ${color}`}>
+        {formatNumber(value)}
+      </span>
+    </div>
+  );
+}
 
-      {activePlan ? (
-        <div className="accountability-stack">
-          <div className="contract-summary">
-            {activePlan.definitionOfDone && (
-              <article>
-                <span>definition of done</span>
-                <p>{activePlan.definitionOfDone}</p>
-              </article>
-            )}
-            {(activePlan.energy || activePlan.mood || activePlan.blockers) && (
-              <article>
-                <span>check-in</span>
-                <p>
-                  {[activePlan.energy, activePlan.mood, activePlan.blockers]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              </article>
-            )}
-          </div>
+function ConsumerPanel({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mx-auto max-w-[1440px] space-y-4">
+      <div>
+        <div className="text-[11px] font-medium uppercase text-zinc-500">{eyebrow}</div>
+        <h2 className="mt-1 text-[22px] font-semibold text-zinc-100">{title}</h2>
+      </div>
+      {children}
+    </div>
+  );
+}
 
-          <div className="objective-list">
-            {activePlan.objectives.map((objective, index) => (
-              <article key={objective._id} data-status={objective.status}>
-                <div>
-                  <strong>{index + 1}</strong>
-                  <p>{objective.text}</p>
+function MessagesView({ dashboard }: { dashboard: PublicDashboard }) {
+  return (
+    <ConsumerPanel eyebrow="Conversation" title="Messages">
+      <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#1d1d20]">
+        {dashboard.recentMessages.length > 0 ? (
+          <div className="divide-y divide-white/10">
+            {dashboard.recentMessages.map((message) => (
+              <article key={message._id} className="grid gap-1 px-4 py-3">
+                <div className="flex items-center justify-between gap-3 text-[11px] uppercase text-zinc-500">
+                  <span>{message.role}</span>
+                  <span>{formatTimestamp(message.createdAt)}</span>
                 </div>
-                <span>{objective.status}</span>
-                {(objective.proof || objective.notes) && (
-                  <small>{objective.proof || objective.notes}</small>
-                )}
+                <p className="max-w-4xl whitespace-pre-wrap text-sm leading-6 text-zinc-200">
+                  {message.content}
+                </p>
               </article>
             ))}
           </div>
+        ) : (
+          <EmptyConsumerState label="no messages yet. text azraj and this fills in." />
+        )}
+      </section>
+    </ConsumerPanel>
+  );
+}
 
-          {(activePlan.completedSummary || activePlan.slippedSummary || activePlan.lesson || activePlan.tomorrowAdjustment) && (
-            <div className="review-grid">
-              {activePlan.completedSummary && (
-                <article>
-                  <span>completed</span>
-                  <p>{activePlan.completedSummary}</p>
-                </article>
-              )}
-              {activePlan.slippedSummary && (
-                <article>
-                  <span>slipped</span>
-                  <p>{activePlan.slippedSummary}</p>
-                </article>
-              )}
-              {activePlan.lesson && (
-                <article>
-                  <span>lesson</span>
-                  <p>{activePlan.lesson}</p>
-                </article>
-              )}
-              {activePlan.tomorrowAdjustment && (
-                <article>
-                  <span>tomorrow</span>
-                  <p>{activePlan.tomorrowAdjustment}</p>
-                </article>
+function MemoryView({ dashboard }: { dashboard: PublicDashboard }) {
+  return (
+    <ConsumerPanel eyebrow="Memory" title="What Azraj remembers">
+      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {dashboard.memories.length > 0 ? (
+          dashboard.memories.map((memory) => (
+            <article
+              key={memory._id}
+              className="min-h-[124px] rounded-2xl border border-white/10 bg-[#1d1d20] p-4"
+            >
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <span className="rounded-full border border-white/10 px-2 py-1 text-[11px] uppercase text-zinc-500">
+                  {memory.tier}
+                </span>
+                <span className="font-mono text-[11px] text-zinc-500">
+                  {memory.importance.toFixed(2)}
+                </span>
+              </div>
+              <p className="text-sm leading-6 text-zinc-200">{memory.content}</p>
+              <div className="mt-3 text-xs text-zinc-500">{memory.segment}</div>
+            </article>
+          ))
+        ) : (
+          <EmptyConsumerState label="no memory yet. azraj saves durable goals and patterns as you talk." />
+        )}
+      </section>
+    </ConsumerPanel>
+  );
+}
+
+function AutomationsView({ dashboard }: { dashboard: PublicDashboard }) {
+  return (
+    <ConsumerPanel eyebrow="Check-ins" title="Automations">
+      <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#1d1d20]">
+        {dashboard.automations.length > 0 ? (
+          <div className="divide-y divide-white/10">
+            {dashboard.automations.map((automation) => (
+              <article
+                key={automation._id}
+                className="grid gap-2 px-4 py-3 md:grid-cols-[minmax(0,1fr)_auto]"
+              >
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`h-1.5 w-1.5 rounded-full ${
+                        automation.enabled ? "bg-emerald-400" : "bg-zinc-600"
+                      }`}
+                    />
+                    <h3 className="truncate text-sm font-semibold text-zinc-100">
+                      {automation.name}
+                    </h3>
+                  </div>
+                  <p className="mt-1 truncate text-xs text-zinc-500">{automation.schedule}</p>
+                </div>
+                <div className="text-left text-xs text-zinc-400 md:text-right">
+                  <div>{automation.timezone ?? "local timezone"}</div>
+                  <div className="text-zinc-500">next {formatTimestamp(automation.nextRunAt)}</div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <EmptyConsumerState label="no check-ins scheduled yet. ask azraj to check in later today." />
+        )}
+      </section>
+    </ConsumerPanel>
+  );
+}
+
+function AccountabilityView({ dashboard }: { dashboard: PublicDashboard }) {
+  const activePlan = dashboard.accountability.activePlan;
+  const score =
+    dashboard.metrics.accountability.objectives > 0
+      ? dashboard.metrics.accountability.done / dashboard.metrics.accountability.objectives
+      : 0;
+
+  return (
+    <ConsumerPanel eyebrow="Daily system" title="Accountability">
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
+        <SmallStat label="plans" value={dashboard.metrics.accountability.plans} />
+        <SmallStat label="objectives" value={dashboard.metrics.accountability.objectives} />
+        <SmallStat label="done" value={dashboard.metrics.accountability.done} />
+        <SmallStat label="score" value={`${(score * 100).toFixed(1)}%`} />
+      </div>
+
+      <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#1d1d20]">
+        {activePlan ? (
+          <div>
+            <div className="border-b border-white/10 px-4 py-3">
+              <div className="text-[11px] uppercase text-zinc-500">{activePlan.localDate}</div>
+              <h3 className="mt-1 text-sm font-semibold text-zinc-100">
+                {activePlan.status.replaceAll("_", " ")}
+              </h3>
+              {activePlan.journal && (
+                <p className="mt-2 text-sm leading-6 text-zinc-300">{activePlan.journal}</p>
               )}
             </div>
-          )}
-
-          {expanded && recentPlans.length > 1 && (
-            <div className="recent-contracts">
-              {recentPlans.slice(1, 8).map((plan) => (
-                <article key={plan._id}>
-                  <span>{plan.localDate}</span>
-                  <strong>{plan.objectives.filter((objective) => objective.status === "done").length}/{plan.objectives.length}</strong>
-                  <small>{plan.status}</small>
+            <div className="divide-y divide-white/10">
+              {activePlan.objectives.map((objective) => (
+                <article key={objective._id} className="flex gap-3 px-4 py-3">
+                  <HugeiconsIcon
+                    icon={objective.status === "done" ? CheckmarkCircle02Icon : ArrowShrink02Icon}
+                    size={18}
+                    className={objective.status === "done" ? "text-emerald-400" : "text-zinc-500"}
+                  />
+                  <div className="min-w-0">
+                    <p className="text-sm text-zinc-200">{objective.text}</p>
+                    <div className="mt-1 text-xs text-zinc-500">{objective.status}</div>
+                  </div>
                 </article>
               ))}
             </div>
-          )}
-        </div>
-      ) : (
-        <div className="dashboard-empty-line">
-          text azraj “good morning, help me plan my day” and your contract shows here.
-        </div>
-      )}
-    </section>
-  );
-}
-
-function DashboardMessages({
-  messages,
-  newestMessage,
-  expanded,
-}: {
-  messages: PublicDashboard["recentMessages"];
-  newestMessage: PublicDashboard["recentMessages"][number] | undefined;
-  expanded: boolean;
-}) {
-  return (
-    <section className={`dashboard-panel ${expanded ? "dashboard-panel-wide" : ""}`}>
-      <PanelHeader
-        eyebrow="latest thread"
-        title="Messages"
-        meta={newestMessage ? new Date(newestMessage.createdAt).toLocaleDateString() : "none yet"}
-      />
-      <div className="dashboard-thread">
-        {messages.length > 0 ? (
-          messages.slice(0, expanded ? 20 : 8).map((message) => (
-            <article key={message._id} data-role={message.role}>
-              <span>{message.role}</span>
-              <p>{message.content}</p>
-              <small>{new Date(message.createdAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small>
-            </article>
-          ))
-        ) : (
-          <div className="dashboard-empty-line">text azraj once and your thread shows here.</div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function DashboardMemory({
-  memories,
-  expanded,
-}: {
-  memories: PublicDashboard["memories"];
-  expanded: boolean;
-}) {
-  return (
-    <section className={`dashboard-panel ${expanded ? "dashboard-panel-wide" : ""}`}>
-      <PanelHeader eyebrow="store" title="Memory" meta={`${memories.length} shown`} />
-      <div className="memory-list">
-        {memories.length > 0 ? (
-          memories.slice(0, expanded ? 30 : 8).map((memory) => (
-            <article key={memory._id}>
-              <div>
-                <span>{memory.tier}</span>
-                <span>{memory.segment}</span>
-              </div>
-              <p>{memory.content}</p>
-            </article>
-          ))
-        ) : (
-          <div className="dashboard-empty-line">
-            new memories from your verified conversation will show here.
           </div>
+        ) : (
+          <EmptyConsumerState label="no active plan yet. send azraj your goals for today." />
         )}
-      </div>
-    </section>
+      </section>
+    </ConsumerPanel>
   );
 }
 
-function DashboardAutomations({
-  automations,
-  enabledCount,
+function SettingsView({
+  dashboard,
+  onSignOut,
 }: {
-  automations: PublicDashboard["automations"];
-  enabledCount: number;
+  dashboard: PublicDashboard;
+  onSignOut: () => void;
 }) {
   return (
-    <section className="dashboard-panel">
-      <PanelHeader eyebrow="rhythm" title="Check-ins" meta={`${enabledCount} active`} />
-      <div className="automation-list">
-        {automations.length > 0 ? (
-          automations.map((automation) => (
-            <article key={automation._id}>
-              <div>
-                <strong>{automation.name}</strong>
-                <span>{automation.enabled ? "active" : "paused"}</span>
-              </div>
-              <p>{automation.schedule}{automation.timezone ? ` · ${automation.timezone}` : ""}</p>
-            </article>
-          ))
-        ) : (
-          <div className="dashboard-empty-line">
-            ask azraj to check in daily, tonight, or every week.
-          </div>
-        )}
-      </div>
-    </section>
+    <ConsumerPanel eyebrow="Account" title="Settings">
+      <section className="rounded-2xl border border-white/10 bg-[#1d1d20] p-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <SmallFact label="phone" value={dashboard.user.phoneE164} />
+          <SmallFact label="status" value={dashboard.user.onboardingStatus} />
+          <SmallFact label="conversations" value={String(dashboard.conversationIds.length)} />
+          <SmallFact label="azraj number" value={AZRAJ_NUMBER} />
+        </div>
+        <button
+          type="button"
+          onClick={onSignOut}
+          className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+        >
+          sign out
+        </button>
+      </section>
+    </ConsumerPanel>
   );
 }
 
-function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+function SmallStat({ label, value }: { label: string; value: number | string }) {
   return (
-    <article className="metric-card">
-      <p>{label}</p>
-      <strong>{value}</strong>
-      <span>{detail}</span>
-    </article>
+    <div className="rounded-2xl border border-white/10 bg-[#1d1d20] p-4">
+      <div className="text-[11px] font-medium uppercase text-zinc-500">{label}</div>
+      <div className="mt-2 font-mono text-2xl font-semibold text-zinc-100">
+        {typeof value === "number" ? formatNumber(value) : value}
+      </div>
+    </div>
+  );
+}
+
+function SmallFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-[11px] font-medium uppercase text-zinc-500">{label}</div>
+      <div className="mt-1 break-words font-mono text-sm text-zinc-100">{value}</div>
+    </div>
+  );
+}
+
+function EmptyConsumerState({ label }: { label: string }) {
+  return (
+    <div className="grid min-h-[180px] place-items-center px-4 py-8 text-center text-sm text-zinc-500">
+      {label}
+    </div>
   );
 }
 
