@@ -1,5 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800;900&display=swap");
 @import "tailwindcss";
+@source "./**/*.{ts,tsx}";
+@source "../../../debug/src/**/*.{ts,tsx}";
 
 :root {
   --paper: #fff8ef;
@@ -791,6 +793,21 @@ button {
 
 .dashboard-page .clouds {
   opacity: 0.72;
+}
+
+.debug-console-host {
+  position: relative;
+  z-index: 2;
+  display: block;
+  width: 100%;
+  height: 100svh;
+  min-height: 100svh;
+  overflow: hidden;
+  background: #101012;
+}
+
+.debug-console-host > div {
+  height: 100%;
 }
 
 .dashboard-admin-surface {

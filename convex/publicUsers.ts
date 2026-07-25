@@ -214,7 +214,15 @@ export const dashboard = query({
     ];
     const conversationSet = new Set(conversationIds);
 
-    const [messages, memories, usageRecords, agents, automations, dailyPlans] = await Promise.all([
+    const [
+      messages,
+      memories,
+      usageRecords,
+      agents,
+      automations,
+      automationRuns,
+      dailyPlans,
+    ] = await Promise.all([
       Promise.all(
         conversationIds.map((conversationId) =>
           ctx.db
@@ -244,6 +252,7 @@ export const dashboard = query({
       ),
       ctx.db.query("executionAgents").order("desc").take(DASHBOARD_SCAN_LIMIT),
       ctx.db.query("automations").order("desc").take(DASHBOARD_SCAN_LIMIT),
+      ctx.db.query("automationRuns").order("desc").take(DASHBOARD_SCAN_LIMIT),
       Promise.all(
         conversationIds.map((conversationId) =>
           ctx.db
@@ -269,6 +278,8 @@ export const dashboard = query({
         (automation.conversationId && conversationSet.has(automation.conversationId)) ||
         (automation.notifyConversationId && conversationSet.has(automation.notifyConversationId)),
     );
+    const automationIds = new Set(automationRows.map((automation) => automation.automationId));
+    const automationRunRows = automationRuns.filter((run) => automationIds.has(run.automationId));
     const planRows = dailyPlans.flat().sort((a, b) => b.updatedAt - a.updatedAt);
     const objectivesByPlan = new Map<Id<"dailyPlans">, Doc<"dailyObjectives">[]>();
     await Promise.all(
@@ -297,13 +308,35 @@ export const dashboard = query({
 
     const dailyBuckets = new Map<
       string,
-      { day: string; costUsd: number; inputTokens: number; outputTokens: number; messages: number }
+      {
+        day: string;
+        costUsd: number;
+        inputTokens: number;
+        outputTokens: number;
+        messages: number;
+        agentsSpawned: number;
+        agentsCompleted: number;
+        agentsFailed: number;
+        agentsCancelled: number;
+        automationRuns: number;
+      }
     >();
     const bucketFor = (ts: number) => {
       const day = new Date(ts).toISOString().slice(0, 10);
       let bucket = dailyBuckets.get(day);
       if (!bucket) {
-        bucket = { day, costUsd: 0, inputTokens: 0, outputTokens: 0, messages: 0 };
+        bucket = {
+          day,
+          costUsd: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          messages: 0,
+          agentsSpawned: 0,
+          agentsCompleted: 0,
+          agentsFailed: 0,
+          agentsCancelled: 0,
+          automationRuns: 0,
+        };
         dailyBuckets.set(day, bucket);
       }
       return bucket;
@@ -316,6 +349,16 @@ export const dashboard = query({
     }
     for (const row of messageRows) {
       bucketFor(row.createdAt).messages += 1;
+    }
+    for (const row of agentRows) {
+      const bucket = bucketFor(row.startedAt);
+      bucket.agentsSpawned += 1;
+      if (row.status === "completed") bucket.agentsCompleted += 1;
+      if (row.status === "failed") bucket.agentsFailed += 1;
+      if (row.status === "cancelled") bucket.agentsCancelled += 1;
+    }
+    for (const row of automationRunRows) {
+      bucketFor(row.startedAt).automationRuns += 1;
     }
 
     const totalCost = usageRows.reduce((sum, row) => sum + row.costUsd, 0);
@@ -344,10 +387,12 @@ export const dashboard = query({
           ).length,
           completed: agentRows.filter((agent) => agent.status === "completed").length,
           failed: agentRows.filter((agent) => agent.status === "failed").length,
+          cancelled: agentRows.filter((agent) => agent.status === "cancelled").length,
         },
         automations: {
           total: automationRows.length,
           enabled: automationRows.filter((automation) => automation.enabled).length,
+          runs: automationRunRows.length,
         },
         accountability: {
           plans: planRows.length,
