@@ -8,6 +8,25 @@ Format:
 
 ---
 
+## Unreleased — Weekly mindset + person of the week
+
+- Added: an opt-in weekly ritual (`BOOP_WEEKLY_ENABLED=true`). Azraj asks each
+  engaged user what day/time they want it (a new `set_weekly_schedule`
+  dispatcher tool saves the slot in their timezone), then every week sends a
+  "mindset of the week" + "person of the week" chosen from the recurring
+  challenge they keep raising in their chatlog, with a one-line why-it-fits and
+  an article to read. Three mid-week "insight" nudges about that person/mindset
+  follow, spaced across the week.
+- Added: the week's content is generated in a single LLM pass over the user's
+  recent messages, using the runtime's built-in web search to find and verify a
+  real article URL (falling back to a named resource when no link checks out).
+  A whole week is generated once and stored, so the follow-ups fire on schedule.
+- Added: new Convex `weeklyMindset` table (per-conversation schedule + this
+  week's content + delivery tracking), a catch-up tick loop (a missed slot
+  delays a drop, never skips it), pure timezone-aware schedule logic in
+  `server/weekly/schedule.ts` with unit coverage, and `GET /weekly/status`,
+  `GET /weekly/preview`, `POST /weekly/send` routes for manual QA.
+
 ## Unreleased — Texting streaks + morning card
 
 - Added: per-user texting streaks. Each conversation's consecutive-day run is

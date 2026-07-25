@@ -25,6 +25,8 @@ import {
 } from "./images/content-blocks.js";
 import { redactPhoneNumbers } from "./privacy.js";
 import { touchStreak } from "./streak/service.js";
+import { getUserTimezone } from "./timezone-config.js";
+import { describeSlot, parseTimeToHour, parseWeekday } from "./weekly/schedule.js";
 
 export const INTERACTION_SYSTEM = `You are Azraj, an AI accountability coach the user texts from iMessage.
 
@@ -567,6 +569,41 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       },
     ),
     defineRuntimeTool(
+      "boop-weekly",
+      "set_weekly_schedule",
+      `Save when THIS user wants their weekly "mindset + person of the week" drop delivered. Call this when the user answers the weekly onboarding question with a day + time (e.g. "sunday 7pm", "mondays at 9", "friday 6:30pm"), or asks to set/change their weekly drop time. The day/time is interpreted in the user's timezone.`,
+      {
+        weekday: z.string().describe('Day of the week, e.g. "Sunday", "Mon", "friday".'),
+        time: z.string().describe('Time of day, e.g. "7pm", "9:00am", "19:00", "noon".'),
+      },
+      async (args) => {
+        const wd = parseWeekday(String(args.weekday ?? ""));
+        const hr = parseTimeToHour(String(args.time ?? ""));
+        if (wd == null) {
+          return runtimeText(
+            `Couldn't read the weekday "${args.weekday}". Ask the user for a day like "Sunday" or "Monday".`,
+            false,
+          );
+        }
+        if (hr == null) {
+          return runtimeText(
+            `Couldn't read the time "${args.time}". Ask the user for something like "7pm" or "9am".`,
+            false,
+          );
+        }
+        const tz = await getUserTimezone();
+        await convex.mutation(api.weeklyMindset.setSchedule, {
+          conversationId: opts.conversationId,
+          timezone: tz,
+          preferredWeekday: wd,
+          preferredHour: hr,
+        });
+        return runtimeText(
+          `Weekly mindset drop scheduled for ${describeSlot(wd, hr)} (${tz}). The first one goes out shortly, then weekly at that time. Confirm to the user that it's locked in.`,
+        );
+      },
+    ),
+    defineRuntimeTool(
       "boop-ack",
       "send_ack",
       `Send a short acknowledgment message to the user IMMEDIATELY, before a slow operation. Use this BEFORE spawn_agent so the user knows you heard them and are working on it. Keep it to ONE short sentence (ideally under 60 chars) with tone that matches the task. Examples: "On it — one sec 🔍", "Looking into it…", "Drafting now, hold tight.", "Let me check your calendar."`,
@@ -662,6 +699,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
               "mcp__boop-draft-decisions__send_draft",
               "mcp__boop-draft-decisions__reject_draft",
               "mcp__boop-pending__clear_pending_continuation",
+              "mcp__boop-weekly__set_weekly_schedule",
               "mcp__boop-ack__send_ack",
               "mcp__boop-self__get_config",
               "mcp__boop-self__set_runtime",

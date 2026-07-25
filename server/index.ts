@@ -34,6 +34,8 @@ import {
 import { startImageCleanup } from "./images/clean.js";
 import { startStreakLoop } from "./streak/service.js";
 import { createStreakRouter } from "./streak-routes.js";
+import { startWeeklyLoop } from "./weekly/service.js";
+import { createWeeklyRouter } from "./weekly-routes.js";
 import { isPublicServerRequest, isTrustedLocalRequest } from "./local-access.js";
 
 async function main() {
@@ -46,6 +48,10 @@ async function main() {
   // Morning streak-card loop. Cheap gate (checks local hour + last-sent date)
   // runs each minute; the render + MMS only fire once per user per morning.
   startStreakLoop();
+  // Weekly "mindset + person of the week" loop (opt-in via BOOP_WEEKLY_ENABLED).
+  // Cheap gate each tick; the LLM generation + sends only fire when a drop or
+  // mid-week insight is actually due for a user.
+  startWeeklyLoop();
   // No-op when a paid embedding key is set; otherwise downloads/loads the
   // local BGE-large model in the background so the first user-facing
   // recall() doesn't pay the model-load cost.
@@ -148,6 +154,7 @@ async function main() {
   app.use("/apple", createAppleRouter());
   app.use("/changelog", createChangelogRouter());
   app.use("/streak", createStreakRouter());
+  app.use("/weekly", createWeeklyRouter());
 
   app.post("/agents/:id/cancel", (req, res) => {
     const ok = cancelAgent(req.params.id);

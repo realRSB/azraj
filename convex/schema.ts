@@ -333,4 +333,40 @@ export default defineSchema({
   })
     .index("by_automation", ["automationId"])
     .index("by_run_id", ["runId"]),
+
+  // Weekly "mindset + person of the week." One row per conversation. The drop
+  // lands at a user-chosen weekday/hour (their timezone); three mid-week
+  // "insight" nudges follow, spaced across the week. A whole week's content is
+  // generated in a single LLM pass from the user's recent chatlog and stored
+  // here so the follow-ups fire on schedule without regenerating.
+  weeklyMindset: defineTable({
+    conversationId: v.string(),
+    timezone: v.string(),
+    status: v.union(
+      // Onboarding ask has been sent; waiting for the user's preferred time.
+      v.literal("awaiting_schedule"),
+      v.literal("active"),
+      v.literal("disabled"),
+    ),
+    // Preferred delivery slot: weekday 0=Sun..6=Sat and hour 0-23, in `timezone`.
+    // Null until the user answers the onboarding ask.
+    preferredWeekday: v.optional(v.number()),
+    preferredHour: v.optional(v.number()),
+    // The slot (YYYY-MM-DDTHH, user's zone) the last drop was sent for. Guards
+    // against a double-drop within a week.
+    lastDropSlot: v.optional(v.string()),
+    // Wall-clock ms when the last drop actually went out. The 3 mid-week
+    // insights fire at fixed elapsed offsets from this.
+    dropSentAt: v.optional(v.number()),
+    // True once a schedule is first saved so the first drop fires on the next
+    // tick rather than waiting up to a week for the next weekday slot.
+    firstDropPending: v.optional(v.boolean()),
+    // This week's generated content as JSON:
+    // { challenge, mindset, person, why, article: { name, url }, insights: [3] }.
+    weekContent: v.optional(v.string()),
+    // Which of the 3 mid-week insights have been delivered for lastDropSlot.
+    insightsSent: v.optional(v.array(v.boolean())),
+    onboardingSentAt: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_conversation", ["conversationId"]),
 });
