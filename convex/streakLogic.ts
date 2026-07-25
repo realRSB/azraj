@@ -33,7 +33,6 @@ export interface StreakAdvance {
 export function advanceStreak(prev: StreakState | null, today: string): StreakAdvance {
   if (!prev) {
     return { currentStreak: 1, longestStreak: 1, totalDays: 1, changed: true, reset: false };
-    return { currentStreak: 1, longestStreak: 1, totalDays: 1, changed: true };
   }
   const diff = dayDiff(prev.lastActiveDate, today);
   if (diff <= 0) {
@@ -54,7 +53,6 @@ export function advanceStreak(prev: StreakState | null, today: string): StreakAd
     changed: true,
     reset: diff > 1,
   };
-  return { currentStreak, longestStreak, totalDays: prev.totalDays + 1, changed: true };
 }
 
 export type CardState = "today" | "alive" | "broken";

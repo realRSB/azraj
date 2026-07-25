@@ -167,11 +167,4 @@ export async function renderStreakCard(input: StreakCardInput): Promise<Rendered
     return { buffer: await composited.jpeg({ quality: 82 }).toBuffer(), contentType: "image/jpeg" };
   }
   return { buffer: await composited.png().toBuffer(), contentType: "image/png" };
-export async function renderStreakCardPng(input: StreakCardInput): Promise<Buffer> {
-  const base = await loadBase(input);
-  const overlay = Buffer.from(buildOverlaySvg(input));
-  return await base
-    .composite([{ input: overlay, top: 0, left: 0 }])
-    .png()
-    .toBuffer();
 }

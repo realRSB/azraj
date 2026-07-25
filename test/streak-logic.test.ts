@@ -86,9 +86,6 @@ describe("advanceStreak", () => {
     expect(advanceStreak(base, "2026-07-25").reset).toBe(true); // 2-day gap
   });
 
-    });
-  });
-
   it("builds a 9-day streak from 9 consecutive days of texting", () => {
     let state: Parameters<typeof advanceStreak>[0] = null;
     for (let day = 1; day <= 9; day++) {

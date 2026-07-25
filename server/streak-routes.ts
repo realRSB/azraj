@@ -2,7 +2,6 @@ import express from "express";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { renderStreakCard, type StreakCardState } from "./streak/card.js";
-import { renderStreakCardPng, type StreakCardState } from "./streak/card.js";
 import { sendStreakCard } from "./streak/service.js";
 import { getUserTimezone } from "./timezone-config.js";
 
@@ -31,8 +30,6 @@ export function createStreakRouter(): express.Router {
       const reset = req.query.reset === "true";
       const tz = await getUserTimezone();
       const { buffer, contentType } = await renderStreakCard({
-      const tz = await getUserTimezone();
-      const png = await renderStreakCardPng({
         streak,
         longest,
         state,
@@ -46,10 +43,6 @@ export function createStreakRouter(): express.Router {
       res.setHeader("Content-Type", contentType);
       res.setHeader("Cache-Control", "no-store");
       res.end(buffer);
-      });
-      res.setHeader("Content-Type", "image/png");
-      res.setHeader("Cache-Control", "no-store");
-      res.end(png);
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }
