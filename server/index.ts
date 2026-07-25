@@ -1,4 +1,6 @@
 import "./env-setup.js";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import express from "express";
 import cors from "cors";
 import { createServer } from "node:http";
@@ -35,6 +37,20 @@ import { startImageCleanup } from "./images/clean.js";
 import { startStreakLoop } from "./streak/service.js";
 import { createStreakRouter } from "./streak-routes.js";
 import { isPublicServerRequest, isTrustedLocalRequest } from "./local-access.js";
+
+function mountPublicWeb(app: express.Express) {
+  if (process.env.BOOP_SERVE_WEB === "false") return false;
+
+  const webDist = resolve(process.cwd(), "dist/web");
+  const indexHtml = resolve(webDist, "index.html");
+  if (!existsSync(indexHtml)) return false;
+
+  app.use(express.static(webDist, { index: false, fallthrough: true }));
+  app.get(["/", "/dashboard"], (_req, res) => {
+    res.sendFile(indexHtml);
+  });
+  return true;
+}
 
 async function main() {
   await loadIntegrations();
@@ -140,14 +156,17 @@ async function main() {
     }
   });
 
+  const publicAuthRouter = createPublicAuthRouter();
   app.use("/sendblue", createSendblueRouter());
-  app.use("/public-auth", createPublicAuthRouter());
+  app.use("/public-auth", publicAuthRouter);
+  app.use("/api/public-auth", publicAuthRouter);
   app.use("/composio", createComposioRouter());
   app.use("/memory", createMemoryRouter());
   app.use("/browser", createBrowserRouter());
   app.use("/apple", createAppleRouter());
   app.use("/changelog", createChangelogRouter());
   app.use("/streak", createStreakRouter());
+  const publicWebMounted = mountPublicWeb(app);
 
   app.post("/agents/:id/cancel", (req, res) => {
     const ok = cancelAgent(req.params.id);
@@ -211,6 +230,10 @@ async function main() {
   server.listen(port, () => {
     console.log(`boop-agent server listening on :${port}`);
     console.log(`  health      GET  http://localhost:${port}/health`);
+    if (publicWebMounted) {
+      console.log(`  web         GET  http://localhost:${port}/`);
+      console.log(`  dashboard   GET  http://localhost:${port}/dashboard`);
+    }
     console.log(`  chat        POST http://localhost:${port}/chat`);
     console.log(`  sendblue    POST http://localhost:${port}/sendblue/webhook`);
     console.log(`  websocket   WS   ws://localhost:${port}/ws`);
