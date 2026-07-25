@@ -26,7 +26,20 @@ import {
 import { redactPhoneNumbers } from "./privacy.js";
 import { touchStreak } from "./streak/service.js";
 import { getUserTimezone } from "./timezone-config.js";
-import { describeSlot, parseTimeToHour, parseWeekday } from "./weekly/schedule.js";
+import {
+  describeSlot,
+  parseTimeToHour,
+  parseWeekday,
+} from "./weekly/schedule.js";
+
+// The Claude Code / Codex subprocess occasionally exits non-zero on a transient
+// condition — usage/rate throttling under load, a flaky MCP-server start, a
+// network blip — rather than a deterministic bug. Detect those so the dispatcher
+// can retry the turn instead of failing it outright.
+function isTransientRuntimeError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return /exited with code\s+\d+/i.test(msg) || /process exited/i.test(msg);
+}
 
 export const INTERACTION_SYSTEM = `You are Azraj, an AI accountability coach the user texts from iMessage.
 
@@ -50,7 +63,7 @@ Accountability workflow:
 - Progress check-ins: afternoon or evening, ask whether they started, what progress was made, what's stuck, and what one next move they will do now.
 - Night review: ask what was completed, what slipped, why it slipped, and what tomorrow's adjustment is. Help them extract the lesson without letting them dodge accountability.
 - General goals: when the user shares a durable goal like "get healthier" or "build my company", recall memory, write durable goal/context memories, then propose daily actionable objectives.
-- Weekly flow: once a week, personalize from the user's goals and memory, then spawn_agent to research a mindset of the week, a person of the week, and suggested readings with sources. Ask the user to study them and report back at the end of the week.
+- Weekly mindset + person of the week: Azraj generates and delivers this automatically on the user's chosen day — you do NOT research it or spawn_agent for it. When the user answers the weekly onboarding question, or asks to set or change WHEN they get it (a day + time, e.g. "sunday 7pm"), call set_weekly_schedule. That is the only weekly action you take; do not spawn a sub-agent for it.
 - Use create_automation for recurring morning, progress, night, or weekly check-ins. Do not invent a scheduler or state table.
 - Use write_memory for durable goals, recurring patterns, preferences, weekly themes, reflections, and repeated blockers.
 - Scheduled accountability check-ins are automations, not drafts. If the user asks "check in with me at 11:30", "remind me this afternoon", or "hold me accountable later", use create_automation. Never stage an iMessage check-in as a draft and ask the user to "send" it.
@@ -60,6 +73,7 @@ Your only tools:
 - recall / write_memory (durable memory for this user)
 - spawn_agent (dispatches a sub-agent that CAN touch the world)
 - create_automation / list_automations / toggle_automation / delete_automation
+- set_weekly_schedule (save the day + time for the user's weekly mindset drop)
 - list_drafts / send_draft / reject_draft
 - get_config / set_runtime / set_model / set_codex_reasoning_effort / set_timezone / list_integrations / search_composio_catalog / inspect_toolkit (self-inspection)
 
@@ -344,7 +358,9 @@ function runtimeLabel(runtime: "claude" | "codex"): string {
   return runtime === "codex" ? "Codex" : "Claude";
 }
 
-export function resolveDirectRuntimeSwitch(content: string): "claude" | "codex" | null {
+export function resolveDirectRuntimeSwitch(
+  content: string,
+): "claude" | "codex" | null {
   const normalized = content
     .trim()
     .toLowerCase()
@@ -412,9 +428,10 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     content: opts.content,
     turnId,
     // TODO(codegen): drop cast once schema push regenerates Convex API.
-    imageStorageIds: inboundImageStorageIds.length > 0
-      ? (inboundImageStorageIds as never)
-      : undefined,
+    imageStorageIds:
+      inboundImageStorageIds.length > 0
+        ? (inboundImageStorageIds as never)
+        : undefined,
     mediaError: opts.mediaError,
   });
   broadcast(opts.kind === "proactive" ? "proactive_notice" : "user_message", {
@@ -486,7 +503,10 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
         ? `Already on ${label}. Next turn will use ${nextConfig.model}.`
         : `Switched to ${label}. Next turn will use ${nextConfig.model}.`;
     log(`runtime switch: ${runtimeConfig.runtime} -> ${directRuntimeSwitch}`);
-    broadcast("assistant_message", { conversationId: opts.conversationId, content: reply });
+    broadcast("assistant_message", {
+      conversationId: opts.conversationId,
+      content: reply,
+    });
     if (opts.persistAssistantReply) {
       await convex.mutation(api.messages.send, {
         conversationId: opts.conversationId,
@@ -506,7 +526,10 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     const reply =
       "Local browser use is off right now. Turn it on in Settings → Local browser use, then resend this and I can use Chrome on your machine.";
     log("browser requested but disabled");
-    broadcast("assistant_message", { conversationId: opts.conversationId, content: reply });
+    broadcast("assistant_message", {
+      conversationId: opts.conversationId,
+      content: reply,
+    });
     if (opts.persistAssistantReply) {
       await convex.mutation(api.messages.send, {
         conversationId: opts.conversationId,
@@ -573,8 +596,12 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       "set_weekly_schedule",
       `Save when THIS user wants their weekly "mindset + person of the week" drop delivered. Call this when the user answers the weekly onboarding question with a day + time (e.g. "sunday 7pm", "mondays at 9", "friday 6:30pm"), or asks to set/change their weekly drop time. The day/time is interpreted in the user's timezone.`,
       {
-        weekday: z.string().describe('Day of the week, e.g. "Sunday", "Mon", "friday".'),
-        time: z.string().describe('Time of day, e.g. "7pm", "9:00am", "19:00", "noon".'),
+        weekday: z
+          .string()
+          .describe('Day of the week, e.g. "Sunday", "Mon", "friday".'),
+        time: z
+          .string()
+          .describe('Time of day, e.g. "7pm", "9:00am", "19:00", "noon".'),
       },
       async (args) => {
         const wd = parseWeekday(String(args.weekday ?? ""));
@@ -608,7 +635,9 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       "send_ack",
       `Send a short acknowledgment message to the user IMMEDIATELY, before a slow operation. Use this BEFORE spawn_agent so the user knows you heard them and are working on it. Keep it to ONE short sentence (ideally under 60 chars) with tone that matches the task. Examples: "On it — one sec 🔍", "Looking into it…", "Drafting now, hold tight.", "Let me check your calendar."`,
       {
-        message: z.string().describe("1 short sentence ack. No markdown. Emojis OK."),
+        message: z
+          .string()
+          .describe("1 short sentence ack. No markdown. Emojis OK."),
       },
       async (args) => {
         const text = args.message.trim();
@@ -624,10 +653,14 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       {
         task: z
           .string()
-          .describe("Crisp task description — what to find/draft/do, not the raw user message."),
+          .describe(
+            "Crisp task description — what to find/draft/do, not the raw user message.",
+          ),
         integrations: z
           .array(z.string())
-          .describe(`Which integrations to give the agent. Available: ${integrations.join(", ") || "(none)"}`),
+          .describe(
+            `Which integrations to give the agent. Available: ${integrations.join(", ") || "(none)"}`,
+          ),
         name: z.string().optional().describe("Short label for the agent."),
         imageRefs: z
           .array(z.string())
@@ -672,73 +705,100 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
             `[agent ${res.agentId} PAUSED — waiting for user to complete a hand-action]\n\nThe sub-agent already messaged the user with what to do. DO NOT relay anything else for this turn — return an empty assistant message. Boop will re-spawn the agent when the user replies.`,
           );
         }
-        return runtimeText(`[agent ${res.agentId} ${res.status}]\n\n${redactPhoneNumbers(res.result)}`);
+        return runtimeText(
+          `[agent ${res.agentId} ${res.status}]\n\n${redactPhoneNumbers(res.result)}`,
+        );
       },
     ),
   ];
   let reply = "";
   let usage: UsageTotals = { ...EMPTY_USAGE };
-  try {
-    const result = await runAgentRuntime(runtimeConfig, {
-      prompt: promptBuild.prompt,
-      systemPrompt,
-      tools,
-      mode: "dispatcher",
-      allowedTools:
-        opts.kind === "proactive"
-          ? []
-          : [
-              "mcp__boop-memory__write_memory",
-              "mcp__boop-memory__recall",
-              "mcp__boop-spawn__spawn_agent",
-              "mcp__boop-automations__create_automation",
-              "mcp__boop-automations__list_automations",
-              "mcp__boop-automations__toggle_automation",
-              "mcp__boop-automations__delete_automation",
-              "mcp__boop-draft-decisions__list_drafts",
-              "mcp__boop-draft-decisions__send_draft",
-              "mcp__boop-draft-decisions__reject_draft",
-              "mcp__boop-pending__clear_pending_continuation",
-              "mcp__boop-weekly__set_weekly_schedule",
-              "mcp__boop-ack__send_ack",
-              "mcp__boop-self__get_config",
-              "mcp__boop-self__set_runtime",
-              "mcp__boop-self__set_model",
-              "mcp__boop-self__set_codex_reasoning_effort",
-              "mcp__boop-self__set_timezone",
-              "mcp__boop-self__list_integrations",
-              "mcp__boop-self__search_composio_catalog",
-              "mcp__boop-self__inspect_toolkit",
-            ],
-      // Belt-and-suspenders: even with bypassPermissions the SDK can leak
-      // its built-ins if we only whitelist. Explicitly block them on the
-      // dispatcher so it MUST spawn a sub-agent for external work.
-      disallowedTools: [
-        "WebSearch",
-        "WebFetch",
-        "Bash",
-        "Read",
-        "Write",
-        "Edit",
-        "Glob",
-        "Grep",
-        "Agent",
-        "Skill",
-      ],
-      onText: (chunk) => opts.onThinking?.(chunk),
-      onToolUse: (toolName, input) => {
-        const name = toolName.replace(/^mcp__boop-[a-z-]+__/, "");
-        const inputPreview = JSON.stringify(input);
-        log(
-          `tool: ${name}(${inputPreview.length > 90 ? inputPreview.slice(0, 90) + "…" : inputPreview})`,
-        );
-      },
-    });
+  const MAX_QUERY_ATTEMPTS = 3;
+  let result: Awaited<ReturnType<typeof runAgentRuntime>> | null = null;
+  for (let attempt = 1; attempt <= MAX_QUERY_ATTEMPTS && !result; attempt++) {
+    // If a tool already ran before the crash, don't retry — replaying the turn
+    // could double a side effect (e.g. create_automation). The transient
+    // failures we retry (subprocess exit-1 from usage/rate throttling or a
+    // flaky MCP-server start) happen at spawn, before any tool runs.
+    let toolRan = false;
+    try {
+      result = await runAgentRuntime(runtimeConfig, {
+        prompt: promptBuild.prompt,
+        systemPrompt,
+        tools,
+        mode: "dispatcher",
+        allowedTools:
+          opts.kind === "proactive"
+            ? []
+            : [
+                "mcp__boop-memory__write_memory",
+                "mcp__boop-memory__recall",
+                "mcp__boop-spawn__spawn_agent",
+                "mcp__boop-automations__create_automation",
+                "mcp__boop-automations__list_automations",
+                "mcp__boop-automations__toggle_automation",
+                "mcp__boop-automations__delete_automation",
+                "mcp__boop-draft-decisions__list_drafts",
+                "mcp__boop-draft-decisions__send_draft",
+                "mcp__boop-draft-decisions__reject_draft",
+                "mcp__boop-pending__clear_pending_continuation",
+                "mcp__boop-weekly__set_weekly_schedule",
+                "mcp__boop-ack__send_ack",
+                "mcp__boop-self__get_config",
+                "mcp__boop-self__set_runtime",
+                "mcp__boop-self__set_model",
+                "mcp__boop-self__set_codex_reasoning_effort",
+                "mcp__boop-self__set_timezone",
+                "mcp__boop-self__list_integrations",
+                "mcp__boop-self__search_composio_catalog",
+                "mcp__boop-self__inspect_toolkit",
+              ],
+        // Belt-and-suspenders: even with bypassPermissions the SDK can leak
+        // its built-ins if we only whitelist. Explicitly block them on the
+        // dispatcher so it MUST spawn a sub-agent for external work.
+        disallowedTools: [
+          "WebSearch",
+          "WebFetch",
+          "Bash",
+          "Read",
+          "Write",
+          "Edit",
+          "Glob",
+          "Grep",
+          "Agent",
+          "Skill",
+        ],
+        onText: (chunk) => opts.onThinking?.(chunk),
+        onToolUse: (toolName, input) => {
+          toolRan = true;
+          const name = toolName.replace(/^mcp__boop-[a-z-]+__/, "");
+          const inputPreview = JSON.stringify(input);
+          log(
+            `tool: ${name}(${inputPreview.length > 90 ? inputPreview.slice(0, 90) + "…" : inputPreview})`,
+          );
+        },
+      });
+    } catch (err) {
+      if (
+        !isTransientRuntimeError(err) ||
+        toolRan ||
+        attempt === MAX_QUERY_ATTEMPTS
+      ) {
+        console.error(`[turn ${tag}] query failed`, err);
+        reply =
+          "Sorry — I hit an error processing that. Try again in a moment.";
+        break;
+      }
+      const delayMs = 1500 * 2 ** (attempt - 1); // 1.5s, then 3s
+      log(
+        `query attempt ${attempt} hit a transient error — retrying in ${Math.round(delayMs / 1000)}s`,
+      );
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
+  }
+  if (result) {
     reply = result.text;
     usage = result.usage;
-  } catch (err) {
-    console.error(`[turn ${tag}] query failed`, err);
-    reply = "Sorry — I hit an error processing that. Try again in a moment.";
   }
 
   // Sometimes the model produces a placeholder string like "(no output)" or
@@ -783,7 +843,10 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     });
   }
 
-  broadcast("assistant_message", { conversationId: opts.conversationId, content: reply });
+  broadcast("assistant_message", {
+    conversationId: opts.conversationId,
+    content: reply,
+  });
 
   if (opts.persistAssistantReply) {
     await convex.mutation(api.messages.send, {
