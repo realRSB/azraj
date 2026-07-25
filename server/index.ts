@@ -32,6 +32,7 @@ import {
   setRuntimeProvider,
 } from "./runtime-config.js";
 import { startImageCleanup } from "./images/clean.js";
+import { startStreakLoop } from "./streak/service.js";
 import { createStreakRouter } from "./streak-routes.js";
 import { isPublicServerRequest, isTrustedLocalRequest } from "./local-access.js";
 
@@ -44,6 +45,9 @@ async function main() {
   startImageCleanup();
   // The streak card is sent reactively from touchStreak() on the user's first
   // message each local day — no scheduled loop needed (see server/streak/service.ts).
+  // Morning streak-card loop. Cheap gate (checks local hour + last-sent date)
+  // runs each minute; the render + MMS only fire once per user per morning.
+  startStreakLoop();
   // No-op when a paid embedding key is set; otherwise downloads/loads the
   // local BGE-large model in the background so the first user-facing
   // recall() doesn't pay the model-load cost.
