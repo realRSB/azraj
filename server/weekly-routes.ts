@@ -1,7 +1,7 @@
 import express from "express";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
-import { forceWeeklyDrop, weeklyEnabled } from "./weekly/service.js";
+import { forceWeeklyDrop, forceWeeklyInsight, weeklyEnabled } from "./weekly/service.js";
 import { generateWeekContent } from "./weekly/generate.js";
 
 export function createWeeklyRouter(): express.Router {
@@ -42,6 +42,23 @@ export function createWeeklyRouter(): express.Router {
     }
     try {
       const sent = await forceWeeklyDrop(conversationId);
+      res.json({ ok: sent });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Force a specific mid-week insight now (QA of the insight path). Requires a
+  // prior /weekly/send so this week's content exists. Body: { conversationId, index }.
+  router.post("/insight", async (req, res) => {
+    const conversationId = req.body?.conversationId;
+    const index = Number(req.body?.index ?? 0);
+    if (typeof conversationId !== "string" || !conversationId.startsWith("sms:")) {
+      res.status(400).json({ error: "conversationId (sms:+…) required" });
+      return;
+    }
+    try {
+      const sent = await forceWeeklyInsight(conversationId, index);
       res.json({ ok: sent });
     } catch (err) {
       res.status(500).json({ error: String(err) });

@@ -223,3 +223,14 @@ export async function forceWeeklyDrop(conversationId: string): Promise<boolean> 
   const slotKey = currentSlotKey(state, parts) ?? new Date().toISOString().slice(0, 13);
   return sendWeeklyDrop(row, slotKey, !row.lastDropSlot);
 }
+
+// Force a specific mid-week insight now, regardless of schedule — QA of the
+// insight path via /weekly/insight. Requires a prior drop so weekContent exists.
+export async function forceWeeklyInsight(
+  conversationId: string,
+  index: number,
+): Promise<boolean> {
+  const row = (await convex.query(api.weeklyMindset.get, { conversationId })) as WeeklyRow | null;
+  if (!row) return false;
+  return sendWeeklyInsight(row, index);
+}
