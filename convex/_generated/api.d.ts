@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as accountability from "../accountability.js";
 import type * as agents from "../agents.js";
 import type * as automations from "../automations.js";
 import type * as consolidation from "../consolidation.js";
@@ -35,6 +36,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  accountability: typeof accountability;
   agents: typeof agents;
   automations: typeof automations;
   consolidation: typeof consolidation;

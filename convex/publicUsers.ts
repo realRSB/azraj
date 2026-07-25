@@ -1,11 +1,14 @@
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
-import type { Id } from "./_generated/dataModel";
+import type { Doc, Id } from "./_generated/dataModel";
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const DASHBOARD_SCAN_LIMIT = 5000;
 
 type Ctx = QueryCtx | MutationCtx;
+type AccountabilityPlanForDashboard = Doc<"dailyPlans"> & {
+  objectives: Doc<"dailyObjectives">[];
+};
 
 async function getUserByPhone(ctx: Ctx, phoneE164: string) {
   return await ctx.db
@@ -211,7 +214,7 @@ export const dashboard = query({
     ];
     const conversationSet = new Set(conversationIds);
 
-    const [messages, memories, usageRecords, agents, automations] = await Promise.all([
+    const [messages, memories, usageRecords, agents, automations, dailyPlans] = await Promise.all([
       Promise.all(
         conversationIds.map((conversationId) =>
           ctx.db
@@ -241,6 +244,15 @@ export const dashboard = query({
       ),
       ctx.db.query("executionAgents").order("desc").take(DASHBOARD_SCAN_LIMIT),
       ctx.db.query("automations").order("desc").take(DASHBOARD_SCAN_LIMIT),
+      Promise.all(
+        conversationIds.map((conversationId) =>
+          ctx.db
+            .query("dailyPlans")
+            .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
+            .order("desc")
+            .take(14),
+        ),
+      ),
     ]);
 
     const messageRows = messages.flat().sort((a, b) => b.createdAt - a.createdAt);
@@ -257,6 +269,31 @@ export const dashboard = query({
         (automation.conversationId && conversationSet.has(automation.conversationId)) ||
         (automation.notifyConversationId && conversationSet.has(automation.notifyConversationId)),
     );
+    const planRows = dailyPlans.flat().sort((a, b) => b.updatedAt - a.updatedAt);
+    const objectivesByPlan = new Map<Id<"dailyPlans">, Doc<"dailyObjectives">[]>();
+    await Promise.all(
+      planRows.map(async (plan) => {
+        const objectives = await ctx.db
+          .query("dailyObjectives")
+          .withIndex("by_plan", (q) => q.eq("planId", plan._id))
+          .collect();
+        objectivesByPlan.set(
+          plan._id,
+          objectives.sort((a, b) => a.createdAt - b.createdAt),
+        );
+      }),
+    );
+    const objectiveRows = [...objectivesByPlan.values()].flat();
+    const activePlan: AccountabilityPlanForDashboard | null = planRows[0]
+      ? {
+          ...planRows[0],
+          objectives: objectivesByPlan.get(planRows[0]._id) ?? [],
+        }
+      : null;
+    const recentPlans: AccountabilityPlanForDashboard[] = planRows.slice(0, 10).map((plan) => ({
+      ...plan,
+      objectives: objectivesByPlan.get(plan._id) ?? [],
+    }));
 
     const dailyBuckets = new Map<
       string,
@@ -312,6 +349,14 @@ export const dashboard = query({
           total: automationRows.length,
           enabled: automationRows.filter((automation) => automation.enabled).length,
         },
+        accountability: {
+          plans: planRows.length,
+          reviewed: planRows.filter((plan) => plan.status === "reviewed").length,
+          objectives: objectiveRows.length,
+          done: objectiveRows.filter((objective) => objective.status === "done").length,
+          slipped: objectiveRows.filter((objective) => objective.status === "slipped").length,
+          activeStatus: activePlan?.status,
+        },
         usage: {
           totalCost,
           inputTokens,
@@ -323,6 +368,10 @@ export const dashboard = query({
       recentMessages: messageRows.slice(0, 20),
       memories: memoryRows.slice(0, 50),
       automations: automationRows.slice(0, 20),
+      accountability: {
+        activePlan,
+        recentPlans,
+      },
     };
   },
 });
