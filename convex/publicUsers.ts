@@ -164,13 +164,19 @@ export const getSession = query({
       .query("userConversationLinks")
       .withIndex("by_user", (q) => q.eq("userId", result.user._id))
       .collect();
+    const conversationIds = [
+      ...new Set([
+        ...links.map((link) => link.conversationId),
+        `sms:${result.user.phoneE164}`,
+      ]),
+    ];
     return {
       userId: result.user._id,
       phoneE164: result.user.phoneE164,
       displayName: result.user.displayName,
       timezone: result.user.timezone,
       onboardingStatus: result.user.onboardingStatus,
-      conversationIds: links.map((link) => link.conversationId),
+      conversationIds,
     };
   },
 });
@@ -197,7 +203,12 @@ export const dashboard = query({
       .query("userConversationLinks")
       .withIndex("by_user", (q) => q.eq("userId", result.user._id))
       .collect();
-    const conversationIds = links.map((link) => link.conversationId);
+    const conversationIds = [
+      ...new Set([
+        ...links.map((link) => link.conversationId),
+        `sms:${result.user.phoneE164}`,
+      ]),
+    ];
     const conversationSet = new Set(conversationIds);
 
     const [messages, memories, usageRecords, agents, automations] = await Promise.all([

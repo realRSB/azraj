@@ -1,6 +1,4 @@
 import { useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
-import { useQuery } from "convex/react";
-import { api } from "../../../convex/_generated/api.js";
 import imessageLogo from "./assets/imessage-logo.png";
 
 declare global {
@@ -142,6 +140,16 @@ function maskPhone(phone: string) {
   return `••• ${digits.slice(-4)}`;
 }
 
+async function parseJsonResponse(res: Response) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error("server returned an invalid response");
+  }
+}
+
 export function App() {
   const [page, setPage] = useState<Page>(() =>
     window.location.pathname === "/dashboard" ? "dashboard" : "home",
@@ -159,11 +167,9 @@ export function App() {
   const [copied, setCopied] = useState<"number" | "message" | null>(null);
   const [activeStep, setActiveStep] = useState(0);
   const [cursor, setCursor] = useState({ x: -100, y: -100, active: false });
-
-  const dashboard = useQuery(
-    api.publicUsers.dashboard,
-    sessionToken ? { sessionToken } : "skip",
-  ) as PublicDashboard | null | undefined;
+  const [dashboard, setDashboard] = useState<PublicDashboard | null | undefined>(
+    sessionToken ? undefined : null,
+  );
 
   useEffect(() => {
     let effect: { destroy: () => void } | undefined;
@@ -248,6 +254,47 @@ export function App() {
     if (sessionToken) setConnectStep("connected");
   }, [sessionToken]);
 
+  useEffect(() => {
+    if (!sessionToken) {
+      setDashboard(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadDashboard({ showLoading }: { showLoading: boolean }) {
+      if (showLoading) setDashboard(undefined);
+      try {
+        const res = await fetch("/api/public-auth/dashboard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionToken }),
+        });
+        const data = await parseJsonResponse(res);
+        if (!res.ok) {
+          if (!cancelled) setDashboard(null);
+          return;
+        }
+        if (!cancelled) {
+          setDashboard(data.dashboard as PublicDashboard);
+        }
+      } catch {
+        if (!cancelled) setDashboard(null);
+      }
+    }
+
+    void loadDashboard({ showLoading: true });
+    const timer = window.setInterval(
+      () => void loadDashboard({ showLoading: false }),
+      5000,
+    );
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [sessionToken]);
+
   function navigate(nextPage: Page) {
     setPage(nextPage);
     window.history.pushState(null, "", nextPage === "dashboard" ? "/dashboard" : "/");
@@ -280,10 +327,10 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "couldn't send code");
-      setVerifiedPhone(data.phoneE164);
-      setDevCode(data.devCode ?? null);
+      const data = await parseJsonResponse(res);
+      if (!res.ok) throw new Error(String(data.error ?? "couldn't send code"));
+      setVerifiedPhone(String(data.phoneE164 ?? ""));
+      setDevCode(typeof data.devCode === "string" ? data.devCode : null);
       setConnectStep("code");
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : String(err));
@@ -302,9 +349,9 @@ export function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: verifiedPhone || phone, code }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "code didn't work");
-      setSessionToken(data.sessionToken);
+      const data = await parseJsonResponse(res);
+      if (!res.ok) throw new Error(String(data.error ?? "code didn't work"));
+      setSessionToken(String(data.sessionToken ?? ""));
       setConnectStep("connected");
       setCode("");
     } catch (err) {
@@ -830,6 +877,7 @@ function UserDashboard({
                 </div>
               </section>
             )}
+
           </div>
         </main>
       </div>

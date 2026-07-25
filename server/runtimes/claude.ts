@@ -82,6 +82,7 @@ export async function runClaudeAgent(request: RuntimeRunRequest): Promise<Runtim
       mcpServers,
       allowedTools: request.allowedTools,
       disallowedTools: request.disallowedTools,
+      env: process.env,
       ...(request.mode === "execution" ? { settingSources: ["project"] as const } : {}),
       permissionMode: "bypassPermissions",
       abortController: request.abortController,

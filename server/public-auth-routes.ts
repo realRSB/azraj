@@ -38,6 +38,22 @@ function devCodePayload(code: string) {
 export function createPublicAuthRouter(): express.Router {
   const router = express.Router();
 
+  router.post("/dashboard", async (req, res) => {
+    const sessionToken = typeof req.body?.sessionToken === "string" ? req.body.sessionToken : "";
+    if (!sessionToken) {
+      res.status(401).json({ error: "dashboard session required" });
+      return;
+    }
+
+    const dashboard = await convex.query(api.publicUsers.dashboard, { sessionToken });
+    if (!dashboard) {
+      res.status(401).json({ error: "dashboard session expired" });
+      return;
+    }
+
+    res.json({ ok: true, dashboard });
+  });
+
   router.post("/start", async (req, res) => {
     const phoneE164 = normalizeE164(String(req.body?.phone ?? ""));
     if (!phoneE164 || !/^\+\d{10,15}$/.test(phoneE164)) {

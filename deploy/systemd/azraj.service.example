@@ -1,0 +1,16 @@
+[Unit]
+Description=Azraj persistent server
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/azraj
+Environment=NODE_ENV=production
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=5
+User=azraj
+Group=azraj
+
+[Install]
+WantedBy=multi-user.target
