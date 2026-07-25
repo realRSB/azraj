@@ -8,27 +8,31 @@ Format:
 
 ---
 
-## Unreleased — Texting streaks + morning card
+## Unreleased — Texting streaks + daily card
 
 - Added: per-user texting streaks. Each conversation's consecutive-day run is
   tracked in the new Convex `streaks` table — the first message of each local
   day (user's timezone) extends the streak, a missed day resets it, and
   longest-run / total-days stats are kept. Pure day math lives in
   `convex/streakLogic.ts` with unit coverage.
-- Added: a morning streak card, MMS'd to each user once per day at a
-  configurable local hour (`BOOP_STREAK_MORNING_HOUR`, default 8;
-  `BOOP_STREAK_ENABLED=false` to turn off). The card is rendered server-side
-  with sharp — the streak number blended over real landscape photography with
-  a milestone-aware coach line, plus a "streak reset" comeback variant.
+- Added: a streak card, MMS'd reactively the moment the user sends their first
+  message of each local day, so the number always reflects the day they just
+  earned (day 2's first text shows "2"). One card per day; same-day repeats
+  send nothing. `BOOP_STREAK_ENABLED=false` turns the feature off. The card is
+  rendered server-side with sharp — the streak number blended over real
+  landscape photography with a milestone-aware coach line, plus a comeback
+  variant when a gap resets the streak.
 - Added: `npm run streak:backgrounds` fetches a curated set of
   Windows-Spotlight-style landscape photos (Unsplash License via Lorem
   Picsum) into gitignored `assets/streak-backgrounds/`. With no photos
   installed the card falls back to built-in vector scenery, so the feature
   works offline out of the box.
-- Added: `GET /streak/preview.png` renders a live sample card and
-  `POST /streak/send` force-sends today's card for a conversation (manual QA).
+- Added: `GET /streak/preview.png` renders a live sample card (supports
+  `?reset=true` and `?format=jpeg`) and `POST /streak/send` force-sends today's
+  card for a conversation (manual QA).
 - Added: outbound MMS support in the Sendblue client (`sendMms`), hosting card
-  images on Convex storage's public CDN URLs.
+  images (JPEG, kept small for reliable MMS delivery) on Convex storage's
+  public CDN URLs.
 
 ## Unreleased — Durable dev supervisor
 
