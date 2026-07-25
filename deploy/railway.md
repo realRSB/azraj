@@ -111,6 +111,14 @@ railway deployment list --json
 Do not treat `railway up --detach` as success by itself. It only queues the
 build. Poll deployments until the newest one is `SUCCESS`.
 
+## Continuous Deployment
+
+The Railway project is connected to this GitHub repo and **auto-deploys on push
+to `main`** — merging a PR triggers a new production deployment within minutes
+(watch it in the Railway dashboard, or `railway deployment list --json`). The
+manual `railway up` above is only needed for the first deploy or an out-of-band
+redeploy.
+
 ## Public Domain
 
 Use Railway's generated domain first. After it works, add a custom domain in
@@ -137,6 +145,21 @@ After a custom domain:
 npm run sendblue:webhook -- https://azraj.app/sendblue/webhook
 npm run sendblue:webhook:check -- https://azraj.app/sendblue/webhook
 ```
+
+## Local Dev Alongside Production
+
+Once Railway is live on your Sendblue number, do NOT let a local `npm run dev`
+re-register its ngrok webhook. Sendblue would then deliver every inbound text to
+BOTH the Railway instance and your local one, so the user gets **two replies**
+(each generated from a different database). Set `SENDBLUE_AUTO_WEBHOOK=false` in
+your local `.env.local` before running the dev stack, so only the deployment
+answers. Verify only production is registered with:
+
+```bash
+npm run sendblue:webhook:check -- https://your-railway-domain.up.railway.app/sendblue/webhook
+```
+
+Do local testing via the debug UI or the `/chat` endpoint, not real SMS.
 
 ## Smoke Test
 
