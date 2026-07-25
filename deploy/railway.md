@@ -46,12 +46,14 @@ Runtime:
 ```bash
 BOOP_RUNTIME=claude
 BOOP_MODEL=claude-sonnet-4-6
+BOOP_CLAUDE_TRANSPORT=api
 ANTHROPIC_API_KEY=...
 ```
 
 For production, prefer `BOOP_RUNTIME=claude` with `ANTHROPIC_API_KEY` configured
-on the Railway service. The local Codex runtime depends on a local `codex login`
-session, which is not a good fit for Railway unless you intentionally copy and
+on the Railway service and `BOOP_CLAUDE_TRANSPORT=api`. The local Claude Agent
+SDK / Claude Code process and local Codex runtime depend on host-level login
+state, which is not a good fit for Railway unless you intentionally copy and
 maintain auth files on the server.
 
 Generate the OTP secret:
@@ -85,6 +87,7 @@ railway variable set NODE_ENV=production
 railway variable set BOOP_SERVE_WEB=true
 railway variable set BOOP_RUNTIME=claude
 railway variable set BOOP_MODEL=claude-sonnet-4-6
+railway variable set BOOP_CLAUDE_TRANSPORT=api
 railway variable set COMPOSIO_USER_ID=azraj-production
 ```
 
