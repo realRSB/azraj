@@ -31,7 +31,7 @@ type DashboardSurface = {
   iconBox: string;
 };
 
-type DailyBucket = {
+export type DailyBucket = {
   day: string;
   agentCost: number;
   inputTokens: number;
@@ -43,7 +43,7 @@ type DailyBucket = {
   automationRuns: number;
 };
 
-type DashboardMetrics = {
+export type DashboardMetrics = {
   messages: number;
   memories: {
     total: number;
@@ -101,10 +101,36 @@ function plural(n: number, singular: string, pluralLabel = `${singular}s`) {
 
 export function DashboardPanel({ isDark }: { isDark: boolean }) {
   const data = useQuery(api.dashboard.metrics, {}) as DashboardMetrics | undefined;
+
+  if (!data) {
+    return (
+      <div
+        className={`flex h-full items-center justify-center ${
+          isDark ? "text-slate-500" : "text-slate-400"
+        }`}
+      >
+        Loading dashboard...
+      </div>
+    );
+  }
+
+  return <DashboardMetricsSurface data={data} isDark={isDark} />;
+}
+
+export function DashboardMetricsSurface({
+  data,
+  isDark,
+  eyebrow = "Operations",
+  title = "Debug dashboard",
+}: {
+  data: DashboardMetrics;
+  isDark: boolean;
+  eyebrow?: string;
+  title?: string;
+}) {
   const [range, setRange] = useState<TimeRange>("all");
 
   const filtered = useMemo(() => {
-    if (!data) return null;
     const cutoff = cutoffDate(range);
     const days = cutoff
       ? data.dailyBuckets.filter((d) => d.day >= cutoff)
@@ -146,10 +172,10 @@ export function DashboardPanel({ isDark }: { isDark: boolean }) {
     };
   }, [data, range]);
 
-  if (!data || !filtered) {
+  if (!filtered) {
     return (
       <div
-        className={`flex items-center justify-center h-full ${
+        className={`flex h-full items-center justify-center ${
           isDark ? "text-slate-500" : "text-slate-400"
         }`}
       >
@@ -201,10 +227,10 @@ export function DashboardPanel({ isDark }: { isDark: boolean }) {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className={`text-[11px] font-medium uppercase ${c.label}`}>
-              Operations
+              {eyebrow}
             </div>
             <h2 className={`mt-1 text-[22px] font-semibold ${c.heading}`}>
-              Debug dashboard
+              {title}
             </h2>
           </div>
 
