@@ -35,6 +35,8 @@ import {
 } from "./runtime-config.js";
 import { startImageCleanup } from "./images/clean.js";
 import { createStreakRouter } from "./streak-routes.js";
+import { startWeeklyLoop } from "./weekly/service.js";
+import { createWeeklyRouter } from "./weekly-routes.js";
 import { isPublicServerRequest, isTrustedLocalRequest } from "./local-access.js";
 
 function mountPublicWeb(app: express.Express) {
@@ -60,6 +62,10 @@ async function main() {
   startImageCleanup();
   // The streak card is sent reactively from touchStreak() on the user's first
   // message each local day — no scheduled loop needed (see server/streak/service.ts).
+  // Weekly "mindset + person of the week" loop (opt-in via BOOP_WEEKLY_ENABLED).
+  // Cheap gate each tick; the LLM generation + sends only fire when a drop or
+  // mid-week insight is actually due for a user.
+  startWeeklyLoop();
   // No-op when a paid embedding key is set; otherwise downloads/loads the
   // local BGE-large model in the background so the first user-facing
   // recall() doesn't pay the model-load cost.
@@ -164,6 +170,7 @@ async function main() {
   app.use("/apple", createAppleRouter());
   app.use("/changelog", createChangelogRouter());
   app.use("/streak", createStreakRouter());
+  app.use("/weekly", createWeeklyRouter());
   const publicWebMounted = mountPublicWeb(app);
 
   app.post("/agents/:id/cancel", (req, res) => {
