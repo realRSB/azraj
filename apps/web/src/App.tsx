@@ -634,33 +634,54 @@ export function App() {
 function Splash() {
   return (
     <section className="splash" aria-label="Opening Azraj">
+      <div className="splash-cinema" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </div>
       <div className="splash-card">
-        <div className="splash-orbit" aria-hidden="true">
-          <span />
-          <span />
-          <span />
+        <div className="splash-frame" aria-hidden="true">
+          <span>06:30</span>
+          <span>imessage accountability</span>
         </div>
-        <div className="splash-topline">
-          <p>azraj</p>
-          <span>imessage coach</span>
-        </div>
-        <div className="splash-body">
-          <h2>setting up your daily pressure system</h2>
-          <div className="splash-thread" aria-hidden="true">
-            <div>goals?</div>
-            <div>3 wins. one proof pic. night audit.</div>
+        <div className="splash-lockup">
+          <div className="splash-mark" aria-hidden="true">az</div>
+          <div>
+            <p>azraj</p>
+            <span>daily pressure system</span>
           </div>
         </div>
-        <div className="splash-meta" aria-hidden="true">
-          <span>plan</span>
-          <span>check in</span>
-          <span>review</span>
+        <div className="splash-radar" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="splash-body">
+          <div className="splash-headline">
+            <p>booting the morning audit</p>
+            <h2>lock in. move today.</h2>
+          </div>
+          <div className="splash-thread" aria-hidden="true">
+            <div>
+              <span>azraj</span>
+              goals? be specific.
+            </div>
+            <div>
+              <span>you</span>
+              gym, physics, azraj launch.
+            </div>
+            <div>
+              <span>azraj</span>
+              bet. 3 receipts by tonight.
+            </div>
+          </div>
         </div>
         <div className="splash-progress" aria-hidden="true">
-          <div className="splash-ring" />
+          <span>plan</span>
           <div className="splash-bar">
             <span />
           </div>
+          <span>review</span>
         </div>
       </div>
     </section>
@@ -1329,7 +1350,9 @@ function CustomCursor({
 }) {
   return (
     <div className="custom-cursor" data-active={active} style={style} aria-hidden="true">
-      <span />
+      <span className="cursor-glow" />
+      <span className="cursor-ring" />
+      <span className="cursor-core" />
     </div>
   );
 }
