@@ -153,6 +153,14 @@ type AccountabilityPlan = {
   }>;
 };
 
+const EMPTY_ACCOUNTABILITY_METRICS = {
+  plans: 0,
+  reviewed: 0,
+  objectives: 0,
+  done: 0,
+  slipped: 0,
+};
+
 const DASHBOARD_NAV: Array<{ id: DashboardView; label: string; icon: any }> = [
   { id: "dashboard", label: "Dashboard", icon: DashboardSquare01Icon },
   { id: "messages", label: "Messages", icon: Activity01Icon },
@@ -259,6 +267,53 @@ function publicDashboardToDebugMetrics(dashboard: PublicDashboard): DashboardMet
     })),
     truncated: false,
     scanLimit: 5000,
+  };
+}
+
+function normalizePublicDashboard(dashboard: PublicDashboard): PublicDashboard {
+  const metrics = dashboard.metrics ?? ({} as PublicDashboard["metrics"]);
+  return {
+    ...dashboard,
+    conversationIds: dashboard.conversationIds ?? [],
+    metrics: {
+      messages: metrics.messages ?? 0,
+      memories: {
+        total: metrics.memories?.total ?? 0,
+        shortTerm: metrics.memories?.shortTerm ?? 0,
+        longTerm: metrics.memories?.longTerm ?? 0,
+        permanent: metrics.memories?.permanent ?? 0,
+      },
+      agents: {
+        total: metrics.agents?.total ?? 0,
+        running: metrics.agents?.running ?? 0,
+        completed: metrics.agents?.completed ?? 0,
+        failed: metrics.agents?.failed ?? 0,
+        cancelled: metrics.agents?.cancelled ?? 0,
+      },
+      automations: {
+        total: metrics.automations?.total ?? 0,
+        enabled: metrics.automations?.enabled ?? 0,
+        runs: metrics.automations?.runs ?? 0,
+      },
+      accountability: {
+        ...EMPTY_ACCOUNTABILITY_METRICS,
+        ...(metrics.accountability ?? {}),
+      },
+      usage: {
+        totalCost: metrics.usage?.totalCost ?? 0,
+        inputTokens: metrics.usage?.inputTokens ?? 0,
+        outputTokens: metrics.usage?.outputTokens ?? 0,
+        totalTokens: metrics.usage?.totalTokens ?? 0,
+      },
+      dailyBuckets: metrics.dailyBuckets ?? [],
+    },
+    recentMessages: dashboard.recentMessages ?? [],
+    memories: dashboard.memories ?? [],
+    automations: dashboard.automations ?? [],
+    accountability: {
+      activePlan: dashboard.accountability?.activePlan ?? null,
+      recentPlans: dashboard.accountability?.recentPlans ?? [],
+    },
   };
 }
 
@@ -398,7 +453,7 @@ export function App() {
           return;
         }
         if (!cancelled) {
-          setDashboard(data.dashboard as PublicDashboard);
+          setDashboard(normalizePublicDashboard(data.dashboard as PublicDashboard));
         }
       } catch {
         if (!cancelled) setDashboard(null);

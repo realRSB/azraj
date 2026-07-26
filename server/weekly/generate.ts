@@ -106,6 +106,7 @@ export async function generateWeekContent(opts: {
   // tool that isn't available on the Claude Code subscription, so invoking it
   // crashes the subprocess ("exited with code 1"). The model names a real
   // article by title + author instead (url:null), which the user can search.
+  const started = Date.now();
   let result;
   try {
     result = await runAgentRuntime(runtimeConfig, {
@@ -119,6 +120,22 @@ export async function generateWeekContent(opts: {
     // state — return null and let the caller retry on the next tick.
     console.warn("[weekly] generation call failed:", err);
     return null;
+  }
+  const usage = result.usage;
+  if (usage.costUsd > 0 || usage.inputTokens > 0) {
+    await convex.mutation(api.usageRecords.record, {
+      source: "weekly",
+      conversationId: opts.conversationId,
+      runtime: runtimeConfig.runtime,
+      billingMode: runtimeConfig.billingMode,
+      model: usage.model,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheCreationTokens: usage.cacheCreationTokens,
+      costUsd: usage.costUsd,
+      durationMs: Date.now() - started,
+    });
   }
   return parseWeekContent(result.text);
 }
