@@ -8,6 +8,22 @@ Format:
 
 ---
 
+## Unreleased — Streak card fix: real fonts + real photos on any host
+
+- Fixed: the streak card rendered as "tofu" (missing-glyph boxes) on the
+  Linux/Railway deploy because the SVG text depended on system fonts (Segoe UI /
+  Helvetica / Arial) that don't exist in the container, and librsvg ignores
+  embedded `@font-face`. Text is now drawn with sharp's native (Pango) renderer
+  pointed at a bundled **Inter** font file, so it renders identically on every
+  host. Inter (OFL) is committed under `assets/fonts/`.
+- Changed: the card is now **always a real photo, never vector scenery**. It
+  fetches a fresh landscape photo every day (Lorem Picsum seeded by the date, or
+  Unsplash when `UNSPLASH_ACCESS_KEY` is set), falling back to a committed set of
+  scenic photos in `assets/streak-fallbacks/` (Unsplash License). The built-in
+  vector scenes were removed.
+- Changed: simplified the card to the streak **number + a small "days"** — the
+  "DAY STREAK" label, hype subline, and date line were removed.
+
 ## Unreleased — Weekly mindset + person of the week
 
 - Added: an opt-in weekly ritual (`BOOP_WEEKLY_ENABLED=true`). Azraj asks each
