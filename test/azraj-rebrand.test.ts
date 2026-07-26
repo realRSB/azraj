@@ -21,15 +21,16 @@ describe("Azraj user-facing identity", () => {
 });
 
 describe("Azraj accountability coaching prompt", () => {
-  it("covers daily planning, progress check-ins, night review, and weekly research", () => {
+  it("covers daily planning, progress check-ins, night review, and weekly ritual", () => {
     expect(INTERACTION_SYSTEM).toContain("Morning planning");
     expect(INTERACTION_SYSTEM).toContain("journal-style check-in");
     expect(INTERACTION_SYSTEM).toContain("concrete daily objectives");
     expect(INTERACTION_SYSTEM).toContain("Progress check-ins");
     expect(INTERACTION_SYSTEM).toContain("Night review");
-    expect(INTERACTION_SYSTEM).toContain("mindset of the week");
+    expect(INTERACTION_SYSTEM.toLowerCase()).toContain("mindset");
     expect(INTERACTION_SYSTEM).toContain("person of the week");
-    expect(INTERACTION_SYSTEM).toContain("suggested readings with sources");
+    expect(INTERACTION_SYSTEM).toContain("article to read");
+    expect(INTERACTION_SYSTEM).toContain("set_weekly_schedule");
   });
 
   it("uses existing memory and automation tools for coaching state and check-ins", () => {
