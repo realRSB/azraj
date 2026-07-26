@@ -28,6 +28,7 @@ import type * as settings from "../settings.js";
 import type * as streakLogic from "../streakLogic.js";
 import type * as streaks from "../streaks.js";
 import type * as usageRecords from "../usageRecords.js";
+import type * as weeklyMindset from "../weeklyMindset.js";
 
 import type {
   ApiFromModules,
@@ -56,6 +57,7 @@ declare const fullApi: ApiFromModules<{
   streakLogic: typeof streakLogic;
   streaks: typeof streaks;
   usageRecords: typeof usageRecords;
+  weeklyMindset: typeof weeklyMindset;
 }>;
 
 /**

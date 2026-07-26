@@ -147,6 +147,7 @@ export default defineSchema({
       v.literal("consolidation-adversary"),
       v.literal("consolidation-judge"),
       v.literal("proactive"),
+      v.literal("weekly"),
     ),
     conversationId: v.optional(v.string()),
     turnId: v.optional(v.string()),
