@@ -2,7 +2,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  type CSSProperties,
   type FormEvent,
   type ReactNode,
 } from "react";
@@ -332,7 +331,6 @@ export function App() {
     window.location.pathname === "/dashboard" ? "dashboard" : "home",
   );
   const [sessionToken, setSessionToken] = useState<string | null>(getStoredSession);
-  const [splashVisible, setSplashVisible] = useState(true);
   const [connectOpen, setConnectOpen] = useState(false);
   const [connectStep, setConnectStep] = useState<ConnectStep>(sessionToken ? "connected" : "phone");
   const [phone, setPhone] = useState("");
@@ -343,7 +341,6 @@ export function App() {
   const [authBusy, setAuthBusy] = useState(false);
   const [copied, setCopied] = useState<"number" | "message" | null>(null);
   const [activeStep, setActiveStep] = useState(0);
-  const [cursor, setCursor] = useState({ x: -100, y: -100, active: false });
   const [dashboard, setDashboard] = useState<PublicDashboard | null | undefined>(
     sessionToken ? undefined : null,
   );
@@ -383,11 +380,6 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setSplashVisible(false), 2800);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
     const steps = Array.from(document.querySelectorAll<HTMLElement>(".story-step"));
     const observer = new IntersectionObserver(
       (entries) => {
@@ -403,17 +395,6 @@ export function App() {
     steps.forEach((step) => observer.observe(step));
     return () => observer.disconnect();
   }, [page]);
-
-  useEffect(() => {
-    const updateCursor = (event: MouseEvent) => {
-      const target = event.target;
-      const active = target instanceof Element && Boolean(target.closest("a, button, input"));
-      setCursor({ x: event.clientX, y: event.clientY, active });
-    };
-
-    window.addEventListener("mousemove", updateCursor);
-    return () => window.removeEventListener("mousemove", updateCursor);
-  }, []);
 
   useEffect(() => {
     if (!connectOpen) return;
@@ -482,10 +463,6 @@ export function App() {
   const starterMessage = "yo azraj, help me plan today.";
   const smsHref = `sms:${smsNumber(AZRAJ_NUMBER)}?&body=${firstText}`;
   const currentStory = storySteps[activeStep] ?? storySteps[0];
-  const cursorStyle = useMemo(
-    () => ({ transform: `translate3d(${cursor.x}px, ${cursor.y}px, 0)` }),
-    [cursor.x, cursor.y],
-  );
 
   async function copyText(kind: "number" | "message", value: string) {
     await navigator.clipboard?.writeText(value);
@@ -549,10 +526,6 @@ export function App() {
   return (
     <main className={`azraj-page ${page === "dashboard" ? "dashboard-page" : ""}`}>
       <div id="azraj-clouds" className="clouds" aria-hidden="true" />
-
-      <CustomCursor active={cursor.active} style={cursorStyle} />
-
-      {splashVisible && <Splash />}
 
       {page !== "dashboard" && (
         <header className="site-nav" aria-label="Azraj navigation">
@@ -628,42 +601,6 @@ export function App() {
         />
       )}
     </main>
-  );
-}
-
-function Splash() {
-  return (
-    <section className="splash" aria-label="Opening Azraj">
-      <div className="splash-card">
-        <div className="splash-orbit" aria-hidden="true">
-          <span />
-          <span />
-          <span />
-        </div>
-        <div className="splash-topline">
-          <p>azraj</p>
-          <span>imessage coach</span>
-        </div>
-        <div className="splash-body">
-          <h2>setting up your daily pressure system</h2>
-          <div className="splash-thread" aria-hidden="true">
-            <div>goals?</div>
-            <div>3 wins. one proof pic. night audit.</div>
-          </div>
-        </div>
-        <div className="splash-meta" aria-hidden="true">
-          <span>plan</span>
-          <span>check in</span>
-          <span>review</span>
-        </div>
-        <div className="splash-progress" aria-hidden="true">
-          <div className="splash-ring" />
-          <div className="splash-bar">
-            <span />
-          </div>
-        </div>
-      </div>
-    </section>
   );
 }
 
@@ -1317,19 +1254,5 @@ function StorySection({
         ))}
       </div>
     </section>
-  );
-}
-
-function CustomCursor({
-  active,
-  style,
-}: {
-  active: boolean;
-  style: CSSProperties;
-}) {
-  return (
-    <div className="custom-cursor" data-active={active} style={style} aria-hidden="true">
-      <span />
-    </div>
   );
 }
