@@ -8,6 +8,20 @@ Format:
 
 ---
 
+## Unreleased — Smarter accountability: no duplicate check-ins
+
+- Fixed: Azraj piled up several recurring automations for the same task (e.g.
+  the same "SAT R&W module check-in" firing over and over) and kept pinging even
+  after the user answered — the fastest way to lose an accountability user.
+  `create_automation` now de-dupes by name: re-calling with the same name
+  removes the existing same-named automation(s) first, so refining a check-in's
+  time/scope updates it in place instead of adding a duplicate.
+- Changed: the dispatcher is instructed to keep **one check-in per task**,
+  recognize when the user is talking about a task it already tracks (and update
+  that one rather than spinning up a new one), and **delete/disable** the related
+  check-in the moment the task is done or the user pushes back ("stop", "I
+  already said yes"). A check-in about a one-time thing must not run forever.
+
 ## Unreleased — Streak card fix: real fonts + real photos on any host
 
 - Fixed: the streak card rendered as "tofu" (missing-glyph boxes) on the
