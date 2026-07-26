@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import express from "express";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
@@ -64,6 +65,43 @@ export function createStreakRouter(): express.Router {
       }
       const sent = await sendStreakCard(row);
       res.json({ ok: sent });
+    } catch (err) {
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // Admin: correct a streak's counters (data repair — e.g. a count that drifted
+  // low while inbound texts were split across two instances). DISABLED unless
+  // STREAK_ADMIN_TOKEN is set in the environment, and requires a matching
+  // `x-admin-token` header. Body: { conversationId, currentStreak,
+  // longestStreak?, totalDays?, lastActiveDate? }.
+  router.post("/admin/set-count", async (req, res) => {
+    const token = process.env.STREAK_ADMIN_TOKEN;
+    if (!token) {
+      res.status(403).json({ error: "admin endpoint disabled — set STREAK_ADMIN_TOKEN to enable" });
+      return;
+    }
+    const provided = Buffer.from(req.get("x-admin-token") ?? "");
+    const expected = Buffer.from(token);
+    if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
+      res.status(401).json({ error: "invalid admin token" });
+      return;
+    }
+    const { conversationId, currentStreak, longestStreak, totalDays, lastActiveDate } =
+      req.body ?? {};
+    if (typeof conversationId !== "string" || typeof currentStreak !== "number") {
+      res.status(400).json({ error: "conversationId (string) and currentStreak (number) required" });
+      return;
+    }
+    try {
+      const result = await convex.mutation(api.streaks.adminSet, {
+        conversationId,
+        currentStreak,
+        ...(typeof longestStreak === "number" ? { longestStreak } : {}),
+        ...(typeof totalDays === "number" ? { totalDays } : {}),
+        ...(typeof lastActiveDate === "string" ? { lastActiveDate } : {}),
+      });
+      res.status(result.ok ? 200 : 404).json(result);
     } catch (err) {
       res.status(500).json({ error: String(err) });
     }

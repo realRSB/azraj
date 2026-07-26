@@ -136,6 +136,9 @@ export function isPublicServerRequest(request: RequestLike): boolean {
     (method === "GET" && normalizedPath === "/health") ||
     (method === "POST" && normalizedPath === "/sendblue/webhook") ||
     (method === "POST" && normalizedPath === "/composio/webhook") ||
+    // Token-gated admin endpoint (disabled unless STREAK_ADMIN_TOKEN is set and
+    // a matching x-admin-token header is provided — enforced in the handler).
+    (method === "POST" && normalizedPath === "/streak/admin/set-count") ||
     (method === "POST" && normalizedPath === "/public-auth/start") ||
     (method === "POST" && normalizedPath === "/public-auth/verify") ||
     (method === "POST" && normalizedPath === "/public-auth/dashboard") ||
