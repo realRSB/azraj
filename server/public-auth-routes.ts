@@ -4,6 +4,26 @@ import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { normalizeE164, sendImessage } from "./sendblue.js";
 import { redactContactHandle } from "./privacy.js";
+import {
+  describeUserNow,
+  resolveTimezoneInput,
+  setUserTimezone,
+} from "./timezone-config.js";
+import {
+  authorizeToolkit,
+  ComposioKeyPermissionError,
+  ComposioNeedsAuthConfigError,
+  composioUserIdForPhone,
+  CURATED_TOOLKITS,
+  disconnectToolkit,
+  displayNameFor,
+  getComposio,
+  listConnectedToolkitsForUser,
+  listToolkitMeta,
+  listToolkitSlugsWithAuthConfig,
+  listToolsForToolkit,
+  renameConnection,
+} from "./composio.js";
 
 const OTP_TTL_MS = 1000 * 60 * 10;
 
@@ -35,6 +55,90 @@ function devCodePayload(code: string) {
   return process.env.NODE_ENV === "production" ? {} : { devCode: code };
 }
 
+function sessionTokenFromBody(body: unknown) {
+  return body && typeof body === "object" && "sessionToken" in body
+    ? String((body as { sessionToken?: unknown }).sessionToken ?? "")
+    : "";
+}
+
+async function getPublicSession(sessionToken: string) {
+  if (!sessionToken) return null;
+  return await convex.query(api.publicUsers.getSession, { sessionToken });
+}
+
+async function listPublicToolkits(composioUserId: string, includeCatalog: boolean) {
+  const [connected, configured, meta] = await Promise.all([
+    listConnectedToolkitsForUser(composioUserId),
+    listToolkitSlugsWithAuthConfig(),
+    listToolkitMeta(),
+  ]);
+
+  const connectionsBySlug = new Map<string, typeof connected>();
+  for (const c of connected) {
+    const arr = connectionsBySlug.get(c.slug) ?? [];
+    arr.push(c);
+    connectionsBySlug.set(c.slug, arr);
+  }
+  for (const arr of connectionsBySlug.values()) {
+    arr.sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+  }
+
+  const toConnectionView = (c: (typeof connected)[number]) => ({
+    id: c.connectionId,
+    status: c.status,
+    alias: c.alias ?? null,
+    accountLabel: c.accountLabel ?? null,
+    accountEmail: c.accountEmail ?? null,
+    accountName: c.accountName ?? null,
+    accountAvatarUrl: c.accountAvatarUrl ?? null,
+    createdAt: c.createdAt ?? null,
+  });
+
+  const curated = CURATED_TOOLKITS.map((t) => {
+    const m = meta.get(t.slug);
+    const conns = connectionsBySlug.get(t.slug) ?? [];
+    return {
+      slug: t.slug,
+      displayName: t.displayName,
+      authMode: t.authMode,
+      hasAuthConfig: configured.has(t.slug),
+      logoUrl: m?.logo ?? null,
+      description: m?.description ?? null,
+      toolCount: m?.toolsCount ?? null,
+      connections: conns.map(toConnectionView),
+    };
+  });
+
+  const curatedSlugs = new Set(CURATED_TOOLKITS.map((t) => t.slug));
+  const extraSlugs = includeCatalog
+    ? [...meta.keys()].filter((slug) => !curatedSlugs.has(slug))
+    : [...connectionsBySlug.keys()].filter((slug) => !curatedSlugs.has(slug));
+
+  const extras = extraSlugs
+    .sort((a, b) => {
+      const aName = meta.get(a)?.name ?? displayNameFor(a);
+      const bName = meta.get(b)?.name ?? displayNameFor(b);
+      return aName.localeCompare(bName);
+    })
+    .map((slug) => {
+      const conns = connectionsBySlug.get(slug) ?? [];
+      const m = meta.get(slug);
+      const authMode: "managed" | "byo" = configured.has(slug) ? "byo" : "managed";
+      return {
+        slug,
+        displayName: m?.name ?? displayNameFor(slug),
+        authMode,
+        hasAuthConfig: configured.has(slug),
+        logoUrl: m?.logo ?? null,
+        description: m?.description ?? null,
+        toolCount: m?.toolsCount ?? null,
+        connections: conns.map(toConnectionView),
+      };
+    });
+
+  return { enabled: Boolean(getComposio()), toolkits: [...curated, ...extras] };
+}
+
 export function createPublicAuthRouter(): express.Router {
   const router = express.Router();
 
@@ -52,6 +156,167 @@ export function createPublicAuthRouter(): express.Router {
     }
 
     res.json({ ok: true, dashboard });
+  });
+
+  router.post("/integrations", async (req, res) => {
+    const session = await getPublicSession(sessionTokenFromBody(req.body));
+    if (!session) {
+      res.status(401).json({ error: "dashboard session required" });
+      return;
+    }
+    try {
+      const composioUserId = composioUserIdForPhone(session.phoneE164);
+      const includeCatalog = req.body?.catalog === "all";
+      const data = await listPublicToolkits(composioUserId, includeCatalog);
+      res.json(data);
+    } catch (err) {
+      console.error("[public-auth] integrations list failed", err);
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  router.post("/integrations/:slug/tools", async (req, res) => {
+    const session = await getPublicSession(sessionTokenFromBody(req.body));
+    if (!session) {
+      res.status(401).json({ error: "dashboard session required" });
+      return;
+    }
+    try {
+      const tools = await listToolsForToolkit(req.params.slug);
+      res.json({ tools });
+    } catch (err) {
+      console.error(`[public-auth] list tools for ${req.params.slug} failed`, err);
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  router.post("/integrations/:slug/authorize", async (req, res) => {
+    const session = await getPublicSession(sessionTokenFromBody(req.body));
+    if (!session) {
+      res.status(401).json({ error: "dashboard session required" });
+      return;
+    }
+    const slug = req.params.slug;
+    const alias = typeof req.body?.alias === "string" ? req.body.alias.trim() : undefined;
+    try {
+      const result = await authorizeToolkit(slug, {
+        composioUserId: composioUserIdForPhone(session.phoneE164),
+        ...(alias ? { alias } : {}),
+      });
+      res.json(result);
+    } catch (err) {
+      if (err instanceof ComposioNeedsAuthConfigError) {
+        res.status(409).json({
+          error: err.message,
+          needsAuthConfig: true,
+          toolkit: slug,
+          setupUrl: "https://dashboard.composio.dev",
+        });
+        return;
+      }
+      if (err instanceof ComposioKeyPermissionError) {
+        res.status(403).json({
+          error: err.message,
+          keyPermission: true,
+          toolkit: slug,
+          setupUrl: "https://dashboard.composio.dev",
+        });
+        return;
+      }
+      console.error(`[public-auth] authorize ${slug} failed`, err);
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  router.post("/integrations/:slug/disconnect", async (req, res) => {
+    const session = await getPublicSession(sessionTokenFromBody(req.body));
+    if (!session) {
+      res.status(401).json({ error: "dashboard session required" });
+      return;
+    }
+    const connectionId = typeof req.body?.connectionId === "string" ? req.body.connectionId : "";
+    if (!connectionId) {
+      res.status(400).json({ error: "connectionId required" });
+      return;
+    }
+    try {
+      const composioUserId = composioUserIdForPhone(session.phoneE164);
+      const owned = (await listConnectedToolkitsForUser(composioUserId)).some(
+        (c) => c.connectionId === connectionId && c.slug === req.params.slug,
+      );
+      if (!owned) {
+        res.status(404).json({ error: "connection not found" });
+        return;
+      }
+      await disconnectToolkit(connectionId);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error(`[public-auth] disconnect ${req.params.slug} failed`, err);
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  router.post("/integrations/connections/:id/rename", async (req, res) => {
+    const session = await getPublicSession(sessionTokenFromBody(req.body));
+    if (!session) {
+      res.status(401).json({ error: "dashboard session required" });
+      return;
+    }
+    const alias = typeof req.body?.alias === "string" ? req.body.alias.trim() : "";
+    if (!alias) {
+      res.status(400).json({ error: "alias required" });
+      return;
+    }
+    try {
+      const composioUserId = composioUserIdForPhone(session.phoneE164);
+      const owned = (await listConnectedToolkitsForUser(composioUserId)).some(
+        (c) => c.connectionId === req.params.id,
+      );
+      if (!owned) {
+        res.status(404).json({ error: "connection not found" });
+        return;
+      }
+      await renameConnection(req.params.id, alias);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error(`[public-auth] rename ${req.params.id} failed`, err);
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  router.post("/timezone", async (req, res) => {
+    const sessionToken = sessionTokenFromBody(req.body);
+    const session = await getPublicSession(sessionToken);
+    if (!session) {
+      res.status(401).json({ error: "dashboard session required" });
+      return;
+    }
+
+    const rawTimezone = typeof req.body?.timezone === "string" ? req.body.timezone : "";
+    const timezone = resolveTimezoneInput(rawTimezone);
+    if (!timezone) {
+      res.status(400).json({
+        error:
+          'timezone must be an IANA timezone like "America/New_York" or an alias like "eastern"',
+      });
+      return;
+    }
+
+    try {
+      const updated = await convex.mutation(api.publicUsers.setTimezone, {
+        sessionToken,
+        timezone,
+      });
+      if (!updated) {
+        res.status(401).json({ error: "dashboard session expired" });
+        return;
+      }
+      await setUserTimezone(timezone);
+      res.json({ ok: true, timezone, now: await describeUserNow() });
+    } catch (err) {
+      console.error("[public-auth] timezone update failed", err);
+      res.status(500).json({ error: String(err) });
+    }
   });
 
   router.post("/start", async (req, res) => {

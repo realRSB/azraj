@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { Composio } from "@composio/core";
 import { Composio as ComposioApiClient } from "@composio/client";
 import { ClaudeAgentSDKProvider } from "@composio/claude-agent-sdk";
@@ -65,8 +66,31 @@ export function getComposio(): Composio<ClaudeAgentSDKProvider> | null {
   return singleton;
 }
 
-export function boopUserId(): string {
-  return process.env.COMPOSIO_USER_ID ?? "boop-default";
+function composioUserHashSecret(): string {
+  return (
+    process.env.PUBLIC_AUTH_SECRET ??
+    process.env.COMPOSIO_USER_ID ??
+    process.env.CONVEX_DEPLOYMENT ??
+    "azraj-dev"
+  );
+}
+
+export function composioUserIdForPhone(phoneE164: string): string {
+  const digest = crypto
+    .createHmac("sha256", composioUserHashSecret())
+    .update(phoneE164)
+    .digest("hex")
+    .slice(0, 32);
+  return `azraj-${digest}`;
+}
+
+export function composioUserIdForConversation(conversationId?: string): string | undefined {
+  if (!conversationId?.startsWith("sms:+")) return undefined;
+  return composioUserIdForPhone(conversationId.slice(4));
+}
+
+export function boopUserId(userId?: string): string {
+  return userId ?? process.env.COMPOSIO_USER_ID ?? "boop-default";
 }
 
 export function displayNameFor(slug: string): string {
@@ -318,13 +342,14 @@ const WHOAMI_BY_TOOLKIT: Record<string, WhoAmITool> = {
 async function fetchToolkitIdentity(
   composio: NonNullable<ReturnType<typeof getComposio>>,
   slug: string,
+  userId: string,
   connectedAccountId?: string,
 ): Promise<AccountIdentity> {
   const spec = WHOAMI_BY_TOOLKIT[slug];
   if (!spec) return {};
   try {
     const result = await composio.tools.execute(spec.tool, {
-      userId: boopUserId(),
+      userId,
       // Without this, Composio picks the user's *default* connection for the
       // toolkit, so every Gmail row in the UI ends up labeled with the same
       // (newest) email — even when distinct accounts are connected.
@@ -349,6 +374,7 @@ async function getIdentityFor(
   composio: NonNullable<ReturnType<typeof getComposio>>,
   id: string,
   slug: string,
+  userId: string,
   seed: AccountIdentity,
 ): Promise<AccountIdentity> {
   if (seed.label) return seed;
@@ -365,7 +391,7 @@ async function getIdentityFor(
     console.warn(`[composio] failed to fetch identity for ${id}`, err);
   }
   if (!identity.label) {
-    const whoami = await fetchToolkitIdentity(composio, slug, id);
+    const whoami = await fetchToolkitIdentity(composio, slug, userId, id);
     if (whoami.label) identity = { ...identity, ...whoami };
   }
   identityCache.set(id, { at: Date.now(), identity });
@@ -373,10 +399,17 @@ async function getIdentityFor(
 }
 
 export async function listConnectedToolkits(): Promise<ConnectedToolkit[]> {
+  return listConnectedToolkitsForUser();
+}
+
+export async function listConnectedToolkitsForUser(
+  composioUserId?: string,
+): Promise<ConnectedToolkit[]> {
   const composio = getComposio();
   if (!composio) return [];
+  const userId = boopUserId(composioUserId);
   try {
-    const resp = await composio.connectedAccounts.list({ userIds: [boopUserId()] });
+    const resp = await composio.connectedAccounts.list({ userIds: [userId] });
     const enriched = await Promise.all(
       resp.items.map(async (it) => {
         const seed = extractAccountIdentity(
@@ -385,7 +418,7 @@ export async function listConnectedToolkits(): Promise<ConnectedToolkit[]> {
         );
         const identity =
           it.status === "ACTIVE"
-            ? await getIdentityFor(composio, it.id, it.toolkit.slug, seed)
+            ? await getIdentityFor(composio, it.id, it.toolkit.slug, userId, seed)
             : seed;
         return {
           slug: it.toolkit.slug,
@@ -519,16 +552,15 @@ export class ComposioNeedsAuthConfigError extends Error {
 
 export async function authorizeToolkit(
   slug: string,
-  opts?: { callbackUrl?: string; alias?: string },
+  opts?: { callbackUrl?: string; alias?: string; composioUserId?: string },
 ): Promise<{ redirectUrl: string | null; connectionId: string }> {
   const composio = getComposio();
   if (!composio) throw new Error("COMPOSIO_API_KEY not set");
+  const userId = boopUserId(opts?.composioUserId);
 
-  // 1. Find or create an auth config for the toolkit. session.authorize doesn't
-  //    auto-discover or auto-create — we have to pass an authConfigId explicitly
-  //    to connectedAccounts.initiate. That's why a manually-added BYO config in
-  //    the dashboard would still trip "require auth configs but none exist" on
-  //    the previous session.authorize-based code path.
+  // 1. Find or create an auth config for the toolkit. Composio's auth link
+  //    endpoint requires an explicit auth_config_id; it does not auto-discover
+  //    or auto-create one.
   let authConfigId: string;
   const existingConfig = (await composio.authConfigs.list({ toolkit: slug })).items[0];
   if (existingConfig) {
@@ -559,17 +591,21 @@ export async function authorizeToolkit(
     }
   }
 
-  // 2. Initiate the connection. allowMultiple if there's already an active connection
-  //    so we add another account instead of replacing.
-  const existing = (await listConnectedToolkits()).filter(
-    (c) => c.slug === slug && c.status === "ACTIVE",
-  );
-  const conn = await composio.connectedAccounts.initiate(boopUserId(), authConfigId, {
-    ...(existing.length > 0 ? { allowMultiple: true } : {}),
-    ...(opts?.callbackUrl ? { callbackUrl: opts.callbackUrl } : {}),
+  // 2. Create an auth link. Composio-managed OAuth configs no longer support
+  //    the older connectedAccounts.initiate path; /connected_accounts/link is
+  //    the current endpoint for user-facing OAuth redirect URLs.
+  const apiKey = process.env.COMPOSIO_API_KEY!;
+  const client = new ComposioApiClient({ apiKey });
+  const link = await client.link.create({
+    auth_config_id: authConfigId,
+    user_id: userId,
+    ...(opts?.callbackUrl ? { callback_url: opts.callbackUrl } : {}),
     ...(opts?.alias ? { alias: opts.alias } : {}),
   });
-  return { redirectUrl: conn.redirectUrl ?? null, connectionId: conn.id };
+  return {
+    redirectUrl: link.redirect_url ?? null,
+    connectionId: link.connected_account_id,
+  };
 }
 
 export async function disconnectToolkit(connectionId: string): Promise<void> {
@@ -583,15 +619,16 @@ export function buildComposioIntegrationModule(slug: string): IntegrationModule 
     name: slug,
     description: `${displayNameFor(slug)} (via Composio)`,
     requiredEnv: ["COMPOSIO_API_KEY"],
-    createServer: async (): Promise<McpSdkServerConfigWithInstance> => {
+    createServer: async (ctx): Promise<McpSdkServerConfigWithInstance> => {
       const composio = getComposio();
       if (!composio) {
         throw new Error(`[composio] cannot build ${slug} — COMPOSIO_API_KEY not set`);
       }
+      const userId = boopUserId(ctx.composioUserId);
       // If the user has 2+ active connections for this toolkit, force Composio to
       // require explicit account selection per tool call — otherwise it silently
       // picks the default account.
-      const activeCount = (await listConnectedToolkits()).filter(
+      const activeCount = (await listConnectedToolkitsForUser(userId)).filter(
         (c) => c.slug === slug && c.status === "ACTIVE",
       ).length;
       // Look up the auth config explicitly. Without this, composio.create() tries
@@ -599,7 +636,7 @@ export function buildComposioIntegrationModule(slug: string): IntegrationModule 
       // have a managed OAuth app available — error message even names the fix:
       // "Please specify them in auth_configs."
       const authConfig = (await composio.authConfigs.list({ toolkit: slug })).items[0];
-      const session = await composio.create(boopUserId(), {
+      const session = await composio.create(userId, {
         toolkits: [slug],
         manageConnections: false,
         ...(authConfig ? { authConfigs: { [slug]: authConfig.id } } : {}),
@@ -614,12 +651,13 @@ export function buildComposioIntegrationModule(slug: string): IntegrationModule 
         tools,
       });
     },
-    createTools: async (): Promise<RuntimeTool[]> => {
+    createTools: async (ctx): Promise<RuntimeTool[]> => {
       const composio = getComposio();
       if (!composio) {
         throw new Error(`[composio] cannot build ${slug} — COMPOSIO_API_KEY not set`);
       }
-      const active = (await listConnectedToolkits()).filter(
+      const userId = boopUserId(ctx.composioUserId);
+      const active = (await listConnectedToolkitsForUser(userId)).filter(
         (c) => c.slug === slug && c.status === "ACTIVE",
       );
       const rawTools = await composio.tools.getRawComposioTools({
@@ -685,7 +723,7 @@ export function buildComposioIntegrationModule(slug: string): IntegrationModule 
               }
 
               const result = await composio.tools.execute(toolName, {
-                userId: boopUserId(),
+                userId,
                 arguments: toolArgs,
                 ...(connectedAccountId ? { connectedAccountId } : {}),
                 dangerouslySkipVersionCheck: true,
@@ -738,11 +776,12 @@ function withConnectedAccountSchema(schema: unknown, activeCount: number): Recor
 export async function ensureTrigger(
   triggerSlug: string,
   connectedAccountId: string,
+  composioUserId?: string,
 ): Promise<string | null> {
   const composio = getComposio();
   if (!composio) return null;
   try {
-    const resp = await composio.triggers.create(boopUserId(), triggerSlug, {
+    const resp = await composio.triggers.create(boopUserId(composioUserId), triggerSlug, {
       connectedAccountId,
     });
     return resp.triggerId ?? null;

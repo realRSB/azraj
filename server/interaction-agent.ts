@@ -33,6 +33,11 @@ import {
   parseTimeToHour,
   parseWeekday,
 } from "./weekly/schedule.js";
+import {
+  composioUserIdForConversation,
+  displayNameFor,
+  listConnectedToolkitsForUser,
+} from "./composio.js";
 
 // The Claude Code / Codex subprocess occasionally exits non-zero on a transient
 // condition — usage/rate throttling under load, a flaky MCP-server start, a
@@ -149,6 +154,9 @@ the sub-agent works. Examples of good acks:
   "checking slack, hold tight."
 Order: send_ack → spawn_agent(s) → (wait) → final reply with the result(s).
 ONE ack covers multiple parallel spawns — don't ack each one separately.
+An ack is ONLY a progress receipt. Never use send_ack to say an integration
+is missing, a task failed, a task succeeded, or any conclusion. Those belong
+in the final reply after tools return.
 Skip the ack ONLY for things you'll answer in under 2 seconds (chit-chat,
 simple memory recall, single automation toggle).
 
@@ -451,6 +459,63 @@ function explicitlyRequestsBrowser(content: string): boolean {
   return directBrowserIntent || (antiNative && browserMention);
 }
 
+function isConclusiveAck(message: string): boolean {
+  const normalized = message.toLowerCase().replace(/\s+/g, " ");
+  return (
+    /\bno (?:google calendar|gmail|calendar|integration|integrations|tool|tools)\b/.test(
+      normalized,
+    ) ||
+    /\b(?:not|none) connected\b/.test(normalized) ||
+    /\byou(?:'|’)ll need to (?:connect|hook|set|add)\b/.test(normalized) ||
+    /\b(?:couldn'?t|can't|cannot|failed|error)\b/.test(normalized) ||
+    /\byou(?:'|’)ve got\b/.test(normalized) ||
+    /\bconnected (?:right now|already)\b/.test(normalized)
+  );
+}
+
+function asksForIntegrationInventory(
+  content: string,
+  priorMessages: Array<{ role: string; content: string }> = [],
+): boolean {
+  const normalized = content.toLowerCase().replace(/\s+/g, " ").trim();
+  const isVagueFollowUp =
+    /^(?:what about )?now\??$/.test(normalized) ||
+    /^(?:check|try|run|look)(?: it| again)?(?: now)?\??$/.test(normalized) ||
+    /^(?:again|retry|refresh|recheck)\??$/.test(normalized);
+  if (isVagueFollowUp) {
+    return priorMessages
+      .slice(-6)
+      .some((m) => m.role === "user" && asksForIntegrationInventory(m.content));
+  }
+  return (
+    /\bwhat (?:integrations|tools|connections) do i have\b/.test(normalized) ||
+    /\bwhich (?:integrations|tools|connections) (?:do i have|are connected)\b/.test(
+      normalized,
+    ) ||
+    /\b(?:list|show) (?:my )?(?:integrations|tools|connections)\b/.test(normalized) ||
+    /\b(?:is|do i have) .{0,40}\bconnected\b/.test(normalized)
+  );
+}
+
+async function integrationInventoryReply(composioUserId?: string): Promise<string> {
+  const connected = (await listConnectedToolkitsForUser(composioUserId)).filter(
+    (c) => c.status === "ACTIVE",
+  );
+  if (connected.length === 0) {
+    return "none connected rn. go to dashboard → Connections to link Google Calendar, Gmail, Slack, etc.";
+  }
+
+  const lines = connected.map((connection) => {
+    const account =
+      connection.accountLabel ??
+      connection.accountEmail ??
+      connection.alias ??
+      "account label unavailable";
+    return `- ${displayNameFor(connection.slug)} connected (${account})`;
+  });
+  return `you’ve got:\n${lines.join("\n")}`;
+}
+
 export function resolveSpawnIntegrations(
   requested: string[],
   available: string[],
@@ -464,7 +529,8 @@ export function resolveSpawnIntegrations(
 
 export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   const turnId = randomId("turn");
-  const integrations = (await listEnabledIntegrations()).map((i) => i.name);
+  const composioUserId = composioUserIdForConversation(opts.conversationId);
+  const integrations = (await listEnabledIntegrations(composioUserId)).map((i) => i.name);
 
   const inboundRole = opts.kind === "proactive" ? "system" : "user";
   const inboundImageStorageIds = (opts.images ?? []).map((i) => i.storageId);
@@ -499,6 +565,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   // logic uses this to skip the placeholder-reply fallback so the user doesn't
   // receive a useless message after the sub-agent already sent its own.
   let dispatcherSilent = false;
+  let ackSent = false;
 
   const history =
     opts.kind === "proactive"
@@ -577,6 +644,24 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     return reply;
   }
 
+  if (opts.kind !== "proactive" && asksForIntegrationInventory(opts.content, history.slice(0, -1))) {
+    const reply = await integrationInventoryReply(composioUserId);
+    log("integration inventory answered deterministically");
+    broadcast("assistant_message", {
+      conversationId: opts.conversationId,
+      content: reply,
+    });
+    if (opts.persistAssistantReply) {
+      await convex.mutation(api.messages.send, {
+        conversationId: opts.conversationId,
+        role: "assistant",
+        content: reply,
+        turnId,
+      });
+    }
+    return reply;
+  }
+
   if (
     opts.kind !== "proactive" &&
     explicitlyRequestsBrowser(opts.content) &&
@@ -603,6 +688,15 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   const sendAck = async (message: string): Promise<void> => {
     const text = redactPhoneNumbers(message.trim());
     if (!text) return;
+    if (ackSent) {
+      log(`ack skipped after first ack: ${text}`);
+      return;
+    }
+    if (isConclusiveAck(text)) {
+      log(`conclusive ack skipped: ${text}`);
+      return;
+    }
+    ackSent = true;
     if (opts.conversationId.startsWith("sms:") && opts.kind !== "proactive") {
       const number = opts.conversationId.slice(4);
       await sendImessage(number, text);
@@ -638,7 +732,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     ...createAccountabilityTools(opts.conversationId),
     ...createAutomationTools(opts.conversationId),
     ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
-    ...createSelfTools(),
+    ...createSelfTools({ composioUserId }),
     defineRuntimeTool(
       "boop-pending",
       "clear_pending_continuation",
@@ -693,7 +787,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     defineRuntimeTool(
       "boop-ack",
       "send_ack",
-      `Send a short acknowledgment message to the user IMMEDIATELY, before a slow operation. Use this BEFORE spawn_agent so the user knows you heard them and are working on it. Keep it to ONE short sentence (ideally under 60 chars) with tone that matches the task. Examples: "On it — one sec 🔍", "Looking into it…", "Drafting now, hold tight.", "Let me check your calendar."`,
+      `Send a short acknowledgment message to the user IMMEDIATELY, before a slow operation. Use this BEFORE spawn_agent so the user knows you heard them and are working on it. Keep it to ONE short progress sentence (ideally under 60 chars). Do not report success, failure, missing integrations, or conclusions here. Examples: "on it — one sec", "looking into it...", "drafting now, hold tight.", "checking your calendar rn."`,
       {
         message: z
           .string()
@@ -703,7 +797,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
         const text = args.message.trim();
         if (!text) return runtimeText("Empty ack skipped.");
         await sendAck(text);
-        return runtimeText("Ack sent to user.");
+        return runtimeText("Ack handled.");
       },
     ),
     defineRuntimeTool(
@@ -758,6 +852,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           name: args.name,
           runtimeConfig,
           imageStorageIds,
+          composioUserId,
         });
         if (res.status === "paused") {
           dispatcherSilent = true;

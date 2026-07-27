@@ -184,6 +184,24 @@ export const getSession = query({
   },
 });
 
+export const setTimezone = mutation({
+  args: { sessionToken: v.string(), timezone: v.string() },
+  handler: async (ctx, args) => {
+    const result = await getSessionUser(ctx, args.sessionToken);
+    if (!result) return null;
+    const now = Date.now();
+    await ctx.db.patch(result.user._id, {
+      timezone: args.timezone,
+      updatedAt: now,
+      lastSeenAt: now,
+    });
+    return {
+      phoneE164: result.user.phoneE164,
+      timezone: args.timezone,
+    };
+  },
+});
+
 export const logout = mutation({
   args: { sessionToken: v.string() },
   handler: async (ctx, args) => {
@@ -369,6 +387,7 @@ export const dashboard = query({
       user: {
         phoneE164: result.user.phoneE164,
         displayName: result.user.displayName,
+        timezone: result.user.timezone,
         onboardingStatus: result.user.onboardingStatus,
       },
       conversationIds,

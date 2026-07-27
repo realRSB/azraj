@@ -12,6 +12,7 @@ import { EMPTY_USAGE, type UsageTotals } from "./usage.js";
 import { getRuntimeConfig, type RuntimeConfig } from "./runtime-config.js";
 import { runAgentRuntime } from "./runtimes/index.js";
 import { buildPromptWithImages, fetchStoredBytes } from "./images/content-blocks.js";
+import { composioUserIdForConversation } from "./composio.js";
 
 const running = new Map<string, AbortController>();
 
@@ -124,6 +125,7 @@ export interface SpawnOptions {
   name?: string;
   runtimeConfig?: RuntimeConfig;
   imageStorageIds?: string[];
+  composioUserId?: string;
 }
 
 export type SpawnExecutionAgentOpts = SpawnOptions;
@@ -149,6 +151,8 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
   );
   const agentStart = Date.now();
   const runtimeConfig = opts.runtimeConfig ?? (await getRuntimeConfig());
+  const composioUserId =
+    opts.composioUserId ?? composioUserIdForConversation(opts.conversationId);
 
   await convex.mutation(api.agents.create, {
     agentId,
@@ -168,11 +172,20 @@ export async function spawnExecutionAgent(opts: SpawnExecutionAgentOpts): Promis
   const draftTools = opts.conversationId ? createDraftStagingTools(opts.conversationId) : [];
   const integrationServers =
     runtimeConfig.runtime === "claude"
-      ? await buildMcpServersForIntegrations(opts.integrations, opts.conversationId, agentId)
+      ? await buildMcpServersForIntegrations(
+          opts.integrations,
+          opts.conversationId,
+          agentId,
+          composioUserId,
+        )
       : {};
   const integrationTools =
     runtimeConfig.runtime === "codex"
-      ? await buildRuntimeToolsForIntegrations(opts.integrations, opts.conversationId)
+      ? await buildRuntimeToolsForIntegrations(
+          opts.integrations,
+          opts.conversationId,
+          composioUserId,
+        )
       : [];
   // Pause-and-resume is an MCP server, so it rides along on the claude
   // runtime only; codex sub-agents simply don't get the pause tool.
