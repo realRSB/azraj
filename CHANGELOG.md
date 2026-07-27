@@ -8,6 +8,28 @@ Format:
 
 ---
 
+## Unreleased — Situational awareness + coaching intelligence
+
+- Added: `server/situation.ts` assembles a per-turn state block that is injected
+  into the dispatcher prompt, so Azraj is grounded in reality instead of relying
+  on the model remembering to call tools. It carries: the current date/time and
+  part-of-day **in the user's timezone** (previously Azraj had no idea what day
+  it was), their texting streak, today's accountability contract with objective
+  status, the live list of active check-ins, and memories pre-recalled against
+  the incoming message. Sections are fetched concurrently and every one degrades
+  to "(unavailable)" on failure, so this never blocks a reply.
+- Fixed: the root cause behind duplicate reminders and unrecognized tasks —
+  grounding was *probabilistic*. The prompt told the model to call `recall()` /
+  `get_daily_contract` / `list_automations`, but nothing guaranteed it did. The
+  live check-in list is now always in view before a new one can be created, and
+  relevant memories are present before Azraj can claim it doesn't know something.
+- Changed: the system prompt gained a coaching-intelligence section — track the
+  thread across fragmented texts (a bare score answers the question you asked),
+  drive one concrete next action, make goals measurable, name repeating patterns
+  instead of re-asking, read frustration/fatigue and back off, and never
+  re-litigate finished work. Plus rules for treating the state block as
+  authoritative and never asking what it already answers.
+
 ## Unreleased — Streak count repair endpoint
 
 - Added: `streaks.adminSet` Convex mutation + a token-gated `POST
