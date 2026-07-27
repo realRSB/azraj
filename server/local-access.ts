@@ -127,6 +127,21 @@ export function isPublicServerRequest(request: RequestLike): boolean {
   const normalizedPath = pathname.replace(/\/+$/, "") || "/";
   const method = request.method ?? "GET";
   const readsPublicWeb = method === "GET" || method === "HEAD";
+  const publicAuthPath =
+    normalizedPath.startsWith("/api/public-auth/")
+      ? normalizedPath.slice("/api/public-auth".length)
+      : normalizedPath.startsWith("/public-auth/")
+        ? normalizedPath.slice("/public-auth".length)
+        : "";
+  const isPublicAuthPost =
+    method === "POST" &&
+    (publicAuthPath === "/start" ||
+      publicAuthPath === "/verify" ||
+      publicAuthPath === "/dashboard" ||
+      publicAuthPath === "/integrations" ||
+      publicAuthPath === "/timezone" ||
+      /^\/integrations\/[^/]+\/(?:tools|authorize|disconnect)$/.test(publicAuthPath) ||
+      /^\/integrations\/connections\/[^/]+\/rename$/.test(publicAuthPath));
   return (
     (readsPublicWeb &&
       (normalizedPath === "/" ||
@@ -139,11 +154,6 @@ export function isPublicServerRequest(request: RequestLike): boolean {
     // Token-gated admin endpoint (disabled unless STREAK_ADMIN_TOKEN is set and
     // a matching x-admin-token header is provided — enforced in the handler).
     (method === "POST" && normalizedPath === "/streak/admin/set-count") ||
-    (method === "POST" && normalizedPath === "/public-auth/start") ||
-    (method === "POST" && normalizedPath === "/public-auth/verify") ||
-    (method === "POST" && normalizedPath === "/public-auth/dashboard") ||
-    (method === "POST" && normalizedPath === "/api/public-auth/start") ||
-    (method === "POST" && normalizedPath === "/api/public-auth/verify") ||
-    (method === "POST" && normalizedPath === "/api/public-auth/dashboard")
+    isPublicAuthPost
   );
 }

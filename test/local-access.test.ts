@@ -119,10 +119,48 @@ describe("local server access", () => {
     expect(
       isPublicServerRequest(request({ method: "POST", url: "/api/public-auth/dashboard/" })),
     ).toBe(true);
+    expect(
+      isPublicServerRequest(request({ method: "POST", url: "/api/public-auth/integrations" })),
+    ).toBe(true);
+    expect(
+      isPublicServerRequest(
+        request({ method: "POST", url: "/api/public-auth/integrations/gmail/tools" }),
+      ),
+    ).toBe(true);
+    expect(
+      isPublicServerRequest(
+        request({ method: "POST", url: "/api/public-auth/integrations/gmail/authorize" }),
+      ),
+    ).toBe(true);
+    expect(
+      isPublicServerRequest(
+        request({ method: "POST", url: "/api/public-auth/integrations/gmail/disconnect" }),
+      ),
+    ).toBe(true);
+    expect(
+      isPublicServerRequest(
+        request({
+          method: "POST",
+          url: "/api/public-auth/integrations/connections/conn_123/rename",
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isPublicServerRequest(request({ method: "POST", url: "/api/public-auth/timezone" })),
+    ).toBe(true);
+    expect(
+      isPublicServerRequest(request({ method: "POST", url: "/public-auth/integrations" })),
+    ).toBe(true);
     expect(isPublicServerRequest(request({ method: "POST", url: "/chat" }))).toBe(false);
     expect(isPublicServerRequest(request({ method: "GET", url: "/public-auth/start" }))).toBe(
       false,
     );
+    expect(
+      isPublicServerRequest(request({ method: "GET", url: "/api/public-auth/integrations" })),
+    ).toBe(false);
+    expect(
+      isPublicServerRequest(request({ method: "POST", url: "/api/public-auth/not-real" })),
+    ).toBe(false);
     expect(isPublicServerRequest(request({ url: "/api/runtime-config" }))).toBe(false);
     expect(isPublicServerRequest(request({ url: "/runtime-config" }))).toBe(false);
     expect(isPublicServerRequest(request({ url: "/composio/toolkits" }))).toBe(false);
