@@ -1,0 +1,4 @@
+interface:
+  display_name: "Azraj Test Protocol"
+  short_description: "Choose the right local or production testing path for Azraj."
+  default_prompt: "Use the Azraj test protocol to decide whether this should be tested locally or in production, then run the correct checklist."
