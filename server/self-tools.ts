@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
   CURATED_TOOLKITS,
-  listConnectedToolkits,
+  listConnectedToolkitsForUser,
   listToolkitMeta,
   listToolsForToolkit,
 } from "./composio.js";
@@ -34,7 +34,7 @@ const NAMESPACE = "boop-self";
 
 const reasoningEffortSchema = z.enum(["minimal", "low", "medium", "high", "xhigh"]);
 
-export function createSelfTools(): RuntimeTool[] {
+export function createSelfTools(opts: { composioUserId?: string } = {}): RuntimeTool[] {
   return [
     defineRuntimeTool(
       NAMESPACE,
@@ -42,7 +42,9 @@ export function createSelfTools(): RuntimeTool[] {
       "Return Azraj's runtime configuration: active provider, model, billing mode, user's timezone, current local time, loaded integrations, and basic env info. Use when the user asks what model/provider/runtime Azraj is using, what time it is, what timezone is active, or anything about the agent itself.",
       {},
       async () => {
-        const integrations = (await listEnabledIntegrations()).map((i) => i.name);
+        const integrations = (await listEnabledIntegrations(opts.composioUserId)).map(
+          (i) => i.name,
+        );
         const tzInfo = await describeUserNow();
         const runtime = await getRuntimeConfig();
         const browser = await getBrowserSettings();
@@ -176,7 +178,7 @@ Use when the user says "use opus", "switch to sonnet", "use Codex mini", "make i
       "List the user's currently connected integrations (Gmail, Slack, etc.) with the actual account behind each connection. Use when the user asks 'what tools do I have connected?' or 'which Gmail account?' or 'what integrations are set up?'.",
       {},
       async () => {
-        const connected = await listConnectedToolkits();
+        const connected = await listConnectedToolkitsForUser(opts.composioUserId);
         const summary = connected.map((c) => ({
           slug: c.slug,
           status: c.status,
@@ -185,7 +187,7 @@ Use when the user says "use opus", "switch to sonnet", "use Codex mini", "make i
         }));
         return runtimeText(
           summary.length === 0
-            ? "No integrations are currently connected. The user can connect new ones from the Connections panel in the debug UI."
+            ? "No integrations are currently connected. The user can connect Gmail, Calendar, Notion, Slack, and more from the Connections panel in the Azraj dashboard."
             : JSON.stringify(summary, null, 2),
         );
       },
@@ -247,7 +249,9 @@ Use when the user says "use opus", "switch to sonnet", "use Codex mini", "make i
             false,
           );
         }
-        const connected = (await listConnectedToolkits()).filter((c) => c.slug === lower);
+        const connected = (await listConnectedToolkitsForUser(opts.composioUserId)).filter(
+          (c) => c.slug === lower,
+        );
         const curated = CURATED_TOOLKITS.find((t) => t.slug === lower);
         const result: {
           slug: string;
@@ -271,7 +275,9 @@ Use when the user says "use opus", "switch to sonnet", "use Codex mini", "make i
             account: c.accountLabel ?? c.accountEmail ?? c.alias ?? "(unknown)",
             id: c.connectionId,
           })),
-          availableForSpawn: (await listEnabledIntegrations()).some((i) => i.name === lower),
+          availableForSpawn: (await listEnabledIntegrations(opts.composioUserId)).some(
+            (i) => i.name === lower,
+          ),
         };
         if (includeTools) {
           result.tools = await listToolsForToolkit(lower);

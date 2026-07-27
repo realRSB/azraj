@@ -13,6 +13,7 @@ export interface IntegrationModule {
 export interface IntegrationContext {
   conversationId?: string;
   agentId?: string;
+  composioUserId?: string;
 }
 
 const registry = new Map<string, IntegrationModule>();
@@ -25,13 +26,38 @@ export function listIntegrations(): IntegrationModule[] {
   return [...registry.values()];
 }
 
-export async function listEnabledIntegrations(): Promise<IntegrationModule[]> {
+export async function listEnabledIntegrations(
+  composioUserId?: string,
+): Promise<IntegrationModule[]> {
   const out: IntegrationModule[] = [];
-  for (const mod of registry.values()) {
+  const names = new Set<string>();
+  if (!composioUserId) {
+    for (const mod of registry.values()) {
+      try {
+        if (!mod.isEnabled || (await mod.isEnabled())) {
+          out.push(mod);
+          names.add(mod.name);
+        }
+      } catch (err) {
+        console.warn(`[integrations] failed to check ${mod.name} enabled state`, err);
+      }
+    }
+  }
+  if (composioUserId) {
     try {
-      if (!mod.isEnabled || (await mod.isEnabled())) out.push(mod);
+      const { buildComposioIntegrationModule, getComposio, listConnectedToolkitsForUser } =
+        await import("../composio.js");
+      if (getComposio()) {
+        const connected = await listConnectedToolkitsForUser(composioUserId);
+        for (const conn of connected) {
+          if (conn.status !== "ACTIVE" || names.has(conn.slug)) continue;
+          const mod = buildComposioIntegrationModule(conn.slug);
+          out.push(mod);
+          names.add(mod.name);
+        }
+      }
     } catch (err) {
-      console.warn(`[integrations] failed to check ${mod.name} enabled state`, err);
+      console.warn("[integrations] failed to load user Composio connections", err);
     }
   }
   return out;
@@ -60,19 +86,36 @@ export async function refreshIntegrations(): Promise<void> {
   await loadIntegrations();
 }
 
-export function makeContext(conversationId?: string, agentId?: string): IntegrationContext {
-  return { conversationId, agentId };
+export function makeContext(
+  conversationId?: string,
+  agentId?: string,
+  composioUserId?: string,
+): IntegrationContext {
+  return { conversationId, agentId, composioUserId };
+}
+
+async function resolveIntegration(name: string): Promise<IntegrationModule | undefined> {
+  const registered = registry.get(name);
+  if (registered) return registered;
+  try {
+    const { buildComposioIntegrationModule, getComposio } = await import("../composio.js");
+    if (getComposio()) return buildComposioIntegrationModule(name);
+  } catch (err) {
+    console.warn(`[integrations] failed dynamic Composio lookup for ${name}`, err);
+  }
+  return undefined;
 }
 
 export async function buildMcpServersForIntegrations(
   names: string[],
   conversationId?: string,
   agentId?: string,
+  composioUserId?: string,
 ): Promise<Record<string, McpSdkServerConfigWithInstance>> {
-  const ctx = makeContext(conversationId, agentId);
+  const ctx = makeContext(conversationId, agentId, composioUserId);
   const out: Record<string, McpSdkServerConfigWithInstance> = {};
   for (const name of names) {
-    const mod = registry.get(name);
+    const mod = await resolveIntegration(name);
     if (!mod) {
       console.warn(`[integrations] unknown integration: ${name}`);
       continue;
@@ -93,11 +136,12 @@ export async function buildMcpServersForIntegrations(
 export async function buildRuntimeToolsForIntegrations(
   names: string[],
   conversationId?: string,
+  composioUserId?: string,
 ): Promise<RuntimeTool[]> {
-  const ctx = makeContext(conversationId);
+  const ctx = makeContext(conversationId, undefined, composioUserId);
   const out: RuntimeTool[] = [];
   for (const name of names) {
-    const mod = registry.get(name);
+    const mod = await resolveIntegration(name);
     if (!mod) {
       console.warn(`[integrations] unknown integration: ${name}`);
       continue;

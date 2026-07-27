@@ -32,6 +32,7 @@ import {
   parseTimeToHour,
   parseWeekday,
 } from "./weekly/schedule.js";
+import { composioUserIdForConversation } from "./composio.js";
 
 // The Claude Code / Codex subprocess occasionally exits non-zero on a transient
 // condition — usage/rate throttling under load, a flaky MCP-server start, a
@@ -420,7 +421,8 @@ export function resolveSpawnIntegrations(
 
 export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   const turnId = randomId("turn");
-  const integrations = (await listEnabledIntegrations()).map((i) => i.name);
+  const composioUserId = composioUserIdForConversation(opts.conversationId);
+  const integrations = (await listEnabledIntegrations(composioUserId)).map((i) => i.name);
 
   const inboundRole = opts.kind === "proactive" ? "system" : "user";
   const inboundImageStorageIds = (opts.images ?? []).map((i) => i.storageId);
@@ -581,7 +583,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     ...createAccountabilityTools(opts.conversationId),
     ...createAutomationTools(opts.conversationId),
     ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
-    ...createSelfTools(),
+    ...createSelfTools({ composioUserId }),
     defineRuntimeTool(
       "boop-pending",
       "clear_pending_continuation",
@@ -701,6 +703,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           name: args.name,
           runtimeConfig,
           imageStorageIds,
+          composioUserId,
         });
         if (res.status === "paused") {
           dispatcherSilent = true;
