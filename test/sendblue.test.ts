@@ -4,9 +4,15 @@ import { normalizeE164, sendImessage } from "../server/sendblue.js";
 const originalApiKey = process.env.SENDBLUE_API_KEY;
 const originalApiSecret = process.env.SENDBLUE_API_SECRET;
 const originalFromNumber = process.env.SENDBLUE_FROM_NUMBER;
+const originalAllowOutbound = process.env.BOOP_ALLOW_OUTBOUND_SMS;
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  if (originalAllowOutbound === undefined) {
+    delete process.env.BOOP_ALLOW_OUTBOUND_SMS;
+  } else {
+    process.env.BOOP_ALLOW_OUTBOUND_SMS = originalAllowOutbound;
+  }
   if (originalApiKey === undefined) {
     delete process.env.SENDBLUE_API_KEY;
   } else {
@@ -35,6 +41,9 @@ describe("sendImessage", () => {
     process.env.SENDBLUE_API_KEY = "test-key";
     process.env.SENDBLUE_API_SECRET = "test-secret";
     process.env.SENDBLUE_FROM_NUMBER = ["+", "1", "555", "000", "0100"].join("");
+    // Outbound is gated to real deployments (see server/sendblue.ts); opt in so
+    // this test can exercise the actual send path.
+    process.env.BOOP_ALLOW_OUTBOUND_SMS = "true";
     const recipient = ["+", "1", "555", "000", "0101"].join("");
     const leakedPhone = ["+", "1", "555", "555", "0102"].join("");
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));

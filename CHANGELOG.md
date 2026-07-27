@@ -8,6 +8,21 @@ Format:
 
 ---
 
+## Unreleased — Outbound SMS is deployment-only
+
+- Fixed: a local dev instance could text the real user for real. Every outbound
+  path (replies, streak cards, automation check-ins, typing indicators) runs
+  through the same client, so a `/chat` call or debug-UI turn using a real
+  conversation id sent an actual iMessage — in practice this pushed an unwanted
+  duplicate streak card to the user's phone from a developer's machine.
+  `SENDBLUE_AUTO_WEBHOOK=false` does not help: it only controls who *receives*.
+- Changed: outbound sending now requires a real deployment — `PUBLIC_URL` set to
+  a non-localhost value, the convention already used elsewhere in the server.
+  Local dev is blocked by default with a clear one-line warning naming the
+  reason and the override. Set `BOOP_ALLOW_OUTBOUND_SMS=true` to opt in
+  deliberately, or `=false` to hard-disable even on a deployment. Covered by
+  `test/outbound-guard.test.ts`.
+
 ## Unreleased — Situational awareness + coaching intelligence
 
 - Added: `server/situation.ts` assembles a per-turn state block that is injected
