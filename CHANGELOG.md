@@ -8,6 +8,15 @@ Format:
 
 ---
 
+## Unreleased — Streak count repair endpoint
+
+- Added: `streaks.adminSet` Convex mutation + a token-gated `POST
+  /streak/admin/set-count` route to correct a streak's counters (data repair for
+  a count that drifted low, e.g. while inbound texts were split across two
+  instances). Disabled unless `STREAK_ADMIN_TOKEN` is set; requires a matching
+  `x-admin-token` header (constant-time compared). Also runnable directly via
+  `npx convex run streaks:adminSet --prod '{...}'`.
+
 ## Unreleased — Smarter accountability: no duplicate check-ins
 
 - Fixed: Azraj piled up several recurring automations for the same task (e.g.

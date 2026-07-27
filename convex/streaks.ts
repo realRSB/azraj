@@ -79,6 +79,42 @@ export const touch = mutation({
   },
 });
 
+// Manual/admin correction of a streak's counters — used to repair data drift
+// (e.g. a streak that was undercounted while inbound texts were split across two
+// instances). Requires the row to already exist. Leaves lastCardDate untouched;
+// longestStreak/totalDays are floored at currentStreak so they stay consistent.
+export const adminSet = mutation({
+  args: {
+    conversationId: v.string(),
+    currentStreak: v.number(),
+    longestStreak: v.optional(v.number()),
+    totalDays: v.optional(v.number()),
+    lastActiveDate: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (!Number.isInteger(args.currentStreak) || args.currentStreak < 0) {
+      return { ok: false as const, reason: "currentStreak must be a non-negative integer" };
+    }
+    const existing = await ctx.db
+      .query("streaks")
+      .withIndex("by_conversation", (q) => q.eq("conversationId", args.conversationId))
+      .unique();
+    if (!existing) {
+      return { ok: false as const, reason: "no streak row for that conversation" };
+    }
+    const longestStreak = Math.max(args.longestStreak ?? existing.longestStreak, args.currentStreak);
+    const totalDays = Math.max(args.totalDays ?? existing.totalDays, args.currentStreak);
+    await ctx.db.patch(existing._id, {
+      currentStreak: args.currentStreak,
+      longestStreak,
+      totalDays,
+      lastActiveDate: args.lastActiveDate ?? existing.lastActiveDate,
+      updatedAt: Date.now(),
+    });
+    return { ok: true as const, row: await ctx.db.get(existing._id) };
+  },
+});
+
 export const markCardSent = mutation({
   args: { conversationId: v.string(), date: v.string() },
   handler: async (ctx, args) => {
