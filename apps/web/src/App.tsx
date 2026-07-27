@@ -23,6 +23,15 @@ import {
   DashboardMetricsSurface,
   type DashboardMetrics,
 } from "../../../debug/src/components/DashboardPanel.js";
+import MemoryGraphView from "../../../debug/src/components/MemoryGraphView.js";
+import {
+  EmptyState,
+  HeaderPill,
+  PanelPage,
+  mutedTextClass,
+  panelCardClass,
+  subtlePanelClass,
+} from "../../../debug/src/components/PanelPrimitives.js";
 import boopGif from "../../../assets/boop.gif";
 import imessageLogo from "./assets/imessage-logo.png";
 
@@ -51,6 +60,7 @@ type PublicDashboard = {
   user: {
     phoneE164: string;
     displayName?: string;
+    timezone?: string;
     onboardingStatus: "started" | "connected";
   };
   conversationIds: string[];
@@ -114,6 +124,13 @@ type PublicDashboard = {
     tier: "short" | "long" | "permanent";
     segment: string;
     importance: number;
+    accessCount?: number;
+    decayRate?: number;
+    sourceTurn?: string;
+    lastAccessedAt?: number;
+    imageStorageIds?: string[];
+    metadata?: string;
+    supersedes?: string[];
     createdAt: number;
   }>;
   automations: Array<{
@@ -232,6 +249,58 @@ const storySteps = [
   },
 ];
 
+const COMMON_TIMEZONES: Array<{ value: string; label: string }> = [
+  { value: "America/New_York", label: "America/New_York (Eastern)" },
+  { value: "America/Chicago", label: "America/Chicago (Central)" },
+  { value: "America/Denver", label: "America/Denver (Mountain)" },
+  { value: "America/Phoenix", label: "America/Phoenix (Arizona)" },
+  { value: "America/Los_Angeles", label: "America/Los_Angeles (Pacific)" },
+  { value: "America/Anchorage", label: "America/Anchorage (Alaska)" },
+  { value: "Pacific/Honolulu", label: "Pacific/Honolulu (Hawaii)" },
+  { value: "Europe/London", label: "Europe/London" },
+  { value: "Europe/Paris", label: "Europe/Paris" },
+  { value: "Europe/Berlin", label: "Europe/Berlin" },
+  { value: "Asia/Tokyo", label: "Asia/Tokyo" },
+  { value: "Asia/Kolkata", label: "Asia/Kolkata" },
+  { value: "Australia/Sydney", label: "Australia/Sydney" },
+  { value: "UTC", label: "UTC" },
+];
+
+type MemoryTierFilter = "all" | "short" | "long" | "permanent";
+type MemoryViewMode = "table" | "graph";
+
+const MEMORY_TIER_OPTIONS: Array<{ value: MemoryTierFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "short", label: "Short" },
+  { value: "long", label: "Long" },
+  { value: "permanent", label: "Permanent" },
+];
+
+const MEMORY_SEGMENT_OPTIONS = [
+  "all",
+  "identity",
+  "preference",
+  "relationship",
+  "project",
+  "knowledge",
+  "context",
+];
+
+const MEMORY_TIER_BADGE: Record<string, string> = {
+  short: "text-sky-400 bg-sky-400/10 border-sky-500/20",
+  long: "text-violet-400 bg-violet-400/10 border-violet-500/20",
+  permanent: "text-amber-400 bg-amber-400/10 border-amber-500/20",
+};
+
+const MEMORY_SEGMENT_COLOR: Record<string, string> = {
+  identity: "text-rose-400",
+  preference: "text-teal-400",
+  relationship: "text-pink-400",
+  project: "text-orange-400",
+  knowledge: "text-blue-400",
+  context: "text-slate-400",
+};
+
 function smsNumber(number: string) {
   return number.replace(/[^\d+]/g, "");
 }
@@ -313,6 +382,13 @@ function normalizePublicDashboard(dashboard: PublicDashboard): PublicDashboard {
   const metrics = dashboard.metrics ?? ({} as PublicDashboard["metrics"]);
   return {
     ...dashboard,
+    user: {
+      ...(dashboard.user ?? {
+        phoneE164: "",
+        onboardingStatus: "started" as const,
+      }),
+      timezone: dashboard.user?.timezone,
+    },
     conversationIds: dashboard.conversationIds ?? [],
     metrics: {
       messages: metrics.messages ?? 0,
@@ -1023,7 +1099,11 @@ function ConsumerDashboardShell({
             {view === "connections" && <ConnectionsView sessionToken={sessionToken} />}
             {view === "accountability" && <AccountabilityView dashboard={dashboard} />}
             {view === "settings" && (
-              <SettingsView dashboard={dashboard} onSignOut={onSignOut} />
+              <SettingsView
+                dashboard={dashboard}
+                sessionToken={sessionToken}
+                onSignOut={onSignOut}
+              />
             )}
           </div>
         </main>
@@ -1098,32 +1178,200 @@ function MessagesView({ dashboard }: { dashboard: PublicDashboard }) {
 }
 
 function MemoryView({ dashboard }: { dashboard: PublicDashboard }) {
+  const [viewMode, setViewMode] = useState<MemoryViewMode>("graph");
+  const [tierFilter, setTierFilter] = useState<MemoryTierFilter>("all");
+  const [segmentFilter, setSegmentFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const allRecords = dashboard.memories;
+  const filtered = allRecords.filter((memory) => {
+    if (tierFilter !== "all" && memory.tier !== tierFilter) return false;
+    if (segmentFilter !== "all" && memory.segment !== segmentFilter) return false;
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      memory.content.toLowerCase().includes(q) ||
+      memory.memoryId.toLowerCase().includes(q) ||
+      memory.segment.toLowerCase().includes(q)
+    );
+  });
+
+  const btnActive = "bg-zinc-100 text-zinc-950 shadow-sm";
+  const btnInactive = "text-zinc-400 hover:bg-white/5 hover:text-zinc-200";
+
   return (
-    <ConsumerPanel eyebrow="Memory" title="What Azraj remembers">
-      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {dashboard.memories.length > 0 ? (
-          dashboard.memories.map((memory) => (
-            <article
-              key={memory._id}
-              className="min-h-[124px] rounded-2xl border border-white/10 bg-[#1d1d20] p-4"
+    <PanelPage
+      eyebrow="Store"
+      title="Memory"
+      description="Search, filter, and inspect the patterns Azraj has saved from your texts."
+      stat={<HeaderPill isDark>{filtered.length}/{allRecords.length}</HeaderPill>}
+      maxWidth={viewMode === "graph" ? "max-w-none" : "max-w-[1040px]"}
+    >
+      <div className={panelCardClass(true, "flex flex-wrap items-center gap-2 px-3 py-3")}>
+        <div className="segmented-control flex items-center rounded-2xl border border-white/10 bg-[#17171a] p-1">
+          {(["table", "graph"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setViewMode(mode)}
+              className={`segmented-button rounded-xl px-2.5 py-1 text-xs capitalize ${
+                viewMode === mode ? btnActive : btnInactive
+              }`}
             >
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <span className="rounded-full border border-white/10 px-2 py-1 text-[11px] uppercase text-zinc-500">
-                  {memory.tier}
-                </span>
-                <span className="font-mono text-[11px] text-zinc-500">
-                  {memory.importance.toFixed(2)}
-                </span>
-              </div>
-              <p className="text-sm leading-6 text-zinc-200">{memory.content}</p>
-              <div className="mt-3 text-xs text-zinc-500">{memory.segment}</div>
-            </article>
-          ))
-        ) : (
-          <EmptyConsumerState label="no memory yet. azraj saves durable goals and patterns as you talk." />
-        )}
-      </section>
-    </ConsumerPanel>
+              {mode}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1">
+          {MEMORY_TIER_OPTIONS.map((tier) => (
+            <button
+              key={tier.value}
+              type="button"
+              onClick={() => setTierFilter(tier.value)}
+              className={`segmented-button rounded-xl px-2.5 py-1 text-xs ${
+                tierFilter === tier.value ? btnActive : btnInactive
+              }`}
+            >
+              {tier.label}
+            </button>
+          ))}
+        </div>
+
+        <select
+          value={segmentFilter}
+          onChange={(event) => setSegmentFilter(event.target.value)}
+          className="rounded-xl border border-white/10 bg-[#17171a] px-2.5 py-1.5 text-xs text-zinc-300 focus:outline-none"
+        >
+          {MEMORY_SEGMENT_OPTIONS.map((segment) => (
+            <option key={segment} value={segment}>
+              {segment === "all" ? "All segments" : segment}
+            </option>
+          ))}
+        </select>
+
+        <input
+          type="text"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search memories..."
+          className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-[#17171a] px-3 py-1.5 text-sm text-zinc-300 placeholder:text-zinc-600 focus:outline-none"
+        />
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <SmallStat label="short" value={dashboard.metrics.memories.shortTerm} />
+        <SmallStat label="long" value={dashboard.metrics.memories.longTerm} />
+        <SmallStat label="permanent" value={dashboard.metrics.memories.permanent} />
+      </div>
+
+      {viewMode === "graph" && (
+        <div
+          className={panelCardClass(
+            true,
+            "h-[calc(100vh-300px)] min-h-[520px] overflow-hidden",
+          )}
+        >
+          <MemoryGraphView records={filtered} isDark />
+        </div>
+      )}
+
+      {viewMode === "table" && (
+        <div className={panelCardClass(true, "overflow-hidden")}>
+          {filtered.length === 0 ? (
+            <EmptyState isDark>No records match your filters</EmptyState>
+          ) : (
+            <div className="divide-y divide-white/10">
+              {filtered.map((memory) => {
+                const isExpanded = expandedId === memory.memoryId;
+                const tierBadge = MEMORY_TIER_BADGE[memory.tier] ?? "";
+                const segmentColor = MEMORY_SEGMENT_COLOR[memory.segment] ?? "text-slate-400";
+
+                return (
+                  <div
+                    key={memory.memoryId}
+                    className="cursor-pointer px-5 py-3 transition-colors hover:bg-white/5"
+                    onClick={() => setExpandedId(isExpanded ? null : memory.memoryId)}
+                  >
+                    <div className="mb-1 flex items-center gap-2">
+                      <span
+                        className={`rounded border px-1.5 py-0.5 text-[10px] font-medium ${
+                          tierBadge
+                        }`}
+                      >
+                        {memory.tier}
+                      </span>
+                      <span className={`text-[10px] font-semibold ${segmentColor}`}>
+                        {memory.segment}
+                      </span>
+                      <span className={`ml-auto text-[10px] mono ${mutedTextClass(true)}`}>
+                        {(memory.importance ?? 0).toFixed(2)}
+                      </span>
+                      <span className="text-[10px] mono text-zinc-600">
+                        {memory.accessCount ?? 0}x
+                      </span>
+                    </div>
+
+                    <p
+                      className={`text-sm text-slate-300 ${
+                        isExpanded ? "" : "line-clamp-2"
+                      }`}
+                    >
+                      {memory.content}
+                    </p>
+
+                    {isExpanded && (
+                      <div className="slide-down mt-3 space-y-2 text-xs">
+                        <div className={`grid grid-cols-2 gap-x-6 gap-y-1 ${mutedTextClass(true)}`}>
+                          <div>
+                            ID: <span className="mono text-slate-400">{memory.memoryId}</span>
+                          </div>
+                          <div>
+                            Decay:{" "}
+                            <span className="mono text-slate-400">
+                              {memory.decayRate ?? "n/a"}
+                            </span>
+                          </div>
+                          {memory.sourceTurn && (
+                            <div>
+                              Turn:{" "}
+                              <span className="mono text-slate-400">
+                                {memory.sourceTurn}
+                              </span>
+                            </div>
+                          )}
+                          <div>
+                            Created:{" "}
+                            <span className="text-slate-400">
+                              {new Date(memory.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          {memory.lastAccessedAt && (
+                            <div>
+                              Last accessed:{" "}
+                              <span className="text-slate-400">
+                                {new Date(memory.lastAccessedAt).toLocaleString()}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {allRecords.length === 0 && viewMode === "graph" && (
+        <div className={subtlePanelClass(true, "px-4 py-10 text-center text-sm text-zinc-500")}>
+          no memory yet. azraj saves durable goals and patterns as you talk.
+        </div>
+      )}
+    </PanelPage>
   );
 }
 
@@ -1448,7 +1696,7 @@ function IntegrationCard({
                     connection.accountLabel ??
                     connection.accountEmail ??
                     connection.accountName ??
-                    "connected account"}
+                    "account label unavailable"}
                 </div>
                 <div className="mt-1 font-mono text-[11px] uppercase text-zinc-500">
                   {connection.status}
@@ -1524,18 +1772,126 @@ function IntegrationLogoMark({ toolkit }: { toolkit: IntegrationToolkit }) {
 
 function SettingsView({
   dashboard,
+  sessionToken,
   onSignOut,
 }: {
   dashboard: PublicDashboard;
+  sessionToken: string;
   onSignOut: () => void;
 }) {
+  const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York";
+  const [timezone, setTimezone] = useState(dashboard.user.timezone ?? browserTimezone);
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setTimezone(dashboard.user.timezone ?? browserTimezone);
+  }, [browserTimezone, dashboard.user.timezone]);
+
+  async function saveTimezone(nextTimezone = timezone) {
+    setStatus("saving");
+    setError(null);
+    try {
+      const result = await publicAuthPost<{ timezone: string }>(
+        "/timezone",
+        sessionToken,
+        { timezone: nextTimezone },
+      );
+      setTimezone(result.timezone);
+      setStatus("saved");
+      window.setTimeout(() => setStatus("idle"), 1600);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setStatus("error");
+    }
+  }
+
   return (
     <ConsumerPanel eyebrow="Account" title="Settings">
+      <section className="rounded-2xl border border-white/10 bg-[#1d1d20] p-4">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-xl">
+            <div className="text-[11px] font-medium uppercase text-zinc-500">
+              local timezone
+            </div>
+            <h3 className="mt-1 text-sm font-semibold text-zinc-100">
+              keep check-ins anchored to your day
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-zinc-400">
+              Azraj uses this for morning plans, afternoon check-ins, night reviews, and
+              anything like “today” or “tomorrow.”
+            </p>
+          </div>
+
+          <div className="w-full max-w-xl space-y-3">
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <select
+                value={COMMON_TIMEZONES.some((item) => item.value === timezone) ? timezone : ""}
+                onChange={(event) => {
+                  if (event.target.value) setTimezone(event.target.value);
+                }}
+                className="h-10 rounded-xl border border-white/10 bg-black/20 px-3 text-sm text-zinc-100 outline-none transition focus:border-white/25"
+              >
+                <option value="">custom timezone...</option>
+                {COMMON_TIMEZONES.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  setTimezone(browserTimezone);
+                  void saveTimezone(browserTimezone);
+                }}
+                className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+              >
+                use local
+              </button>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <input
+                value={timezone}
+                onChange={(event) => setTimezone(event.target.value)}
+                placeholder="America/New_York"
+                className="h-10 rounded-xl border border-white/10 bg-black/20 px-3 font-mono text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-white/25"
+              />
+              <button
+                type="button"
+                disabled={status === "saving"}
+                onClick={() => void saveTimezone()}
+                className="rounded-xl border border-white/10 bg-zinc-100 px-4 py-2 text-sm font-semibold text-zinc-950 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {status === "saving" ? "saving..." : "save"}
+              </button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-full border border-white/10 bg-black/20 px-2 py-1 font-mono text-zinc-400">
+                browser: {browserTimezone}
+              </span>
+              {dashboard.user.timezone ? (
+                <span className="rounded-full bg-emerald-400/10 px-2 py-1 text-emerald-300">
+                  saved: {dashboard.user.timezone}
+                </span>
+              ) : (
+                <span className="rounded-full bg-amber-400/10 px-2 py-1 text-amber-200">
+                  not saved yet
+                </span>
+              )}
+              {status === "saved" && <span className="text-emerald-300">saved</span>}
+              {error && <span className="text-rose-300">{error}</span>}
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="rounded-2xl border border-white/10 bg-[#1d1d20] p-4">
         <div className="grid gap-4 md:grid-cols-2">
           <SmallFact label="phone" value={dashboard.user.phoneE164} />
           <SmallFact label="status" value={dashboard.user.onboardingStatus} />
           <SmallFact label="conversations" value={String(dashboard.conversationIds.length)} />
+          <SmallFact label="timezone" value={dashboard.user.timezone ?? "not set"} />
           <SmallFact label="azraj number" value={AZRAJ_NUMBER} />
         </div>
         <button

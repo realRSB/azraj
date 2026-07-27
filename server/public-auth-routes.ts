@@ -5,6 +5,11 @@ import { convex } from "./convex-client.js";
 import { normalizeE164, sendImessage } from "./sendblue.js";
 import { redactContactHandle } from "./privacy.js";
 import {
+  describeUserNow,
+  resolveTimezoneInput,
+  setUserTimezone,
+} from "./timezone-config.js";
+import {
   authorizeToolkit,
   ComposioKeyPermissionError,
   ComposioNeedsAuthConfigError,
@@ -275,6 +280,41 @@ export function createPublicAuthRouter(): express.Router {
       res.json({ ok: true });
     } catch (err) {
       console.error(`[public-auth] rename ${req.params.id} failed`, err);
+      res.status(500).json({ error: String(err) });
+    }
+  });
+
+  router.post("/timezone", async (req, res) => {
+    const sessionToken = sessionTokenFromBody(req.body);
+    const session = await getPublicSession(sessionToken);
+    if (!session) {
+      res.status(401).json({ error: "dashboard session required" });
+      return;
+    }
+
+    const rawTimezone = typeof req.body?.timezone === "string" ? req.body.timezone : "";
+    const timezone = resolveTimezoneInput(rawTimezone);
+    if (!timezone) {
+      res.status(400).json({
+        error:
+          'timezone must be an IANA timezone like "America/New_York" or an alias like "eastern"',
+      });
+      return;
+    }
+
+    try {
+      const updated = await convex.mutation(api.publicUsers.setTimezone, {
+        sessionToken,
+        timezone,
+      });
+      if (!updated) {
+        res.status(401).json({ error: "dashboard session expired" });
+        return;
+      }
+      await setUserTimezone(timezone);
+      res.json({ ok: true, timezone, now: await describeUserNow() });
+    } catch (err) {
+      console.error("[public-auth] timezone update failed", err);
       res.status(500).json({ error: String(err) });
     }
   });
