@@ -558,11 +558,9 @@ export async function authorizeToolkit(
   if (!composio) throw new Error("COMPOSIO_API_KEY not set");
   const userId = boopUserId(opts?.composioUserId);
 
-  // 1. Find or create an auth config for the toolkit. session.authorize doesn't
-  //    auto-discover or auto-create — we have to pass an authConfigId explicitly
-  //    to connectedAccounts.initiate. That's why a manually-added BYO config in
-  //    the dashboard would still trip "require auth configs but none exist" on
-  //    the previous session.authorize-based code path.
+  // 1. Find or create an auth config for the toolkit. Composio's auth link
+  //    endpoint requires an explicit auth_config_id; it does not auto-discover
+  //    or auto-create one.
   let authConfigId: string;
   const existingConfig = (await composio.authConfigs.list({ toolkit: slug })).items[0];
   if (existingConfig) {
@@ -593,17 +591,21 @@ export async function authorizeToolkit(
     }
   }
 
-  // 2. Initiate the connection. allowMultiple if there's already an active connection
-  //    so we add another account instead of replacing.
-  const existing = (await listConnectedToolkitsForUser(userId)).filter(
-    (c) => c.slug === slug && c.status === "ACTIVE",
-  );
-  const conn = await composio.connectedAccounts.initiate(userId, authConfigId, {
-    ...(existing.length > 0 ? { allowMultiple: true } : {}),
-    ...(opts?.callbackUrl ? { callbackUrl: opts.callbackUrl } : {}),
+  // 2. Create an auth link. Composio-managed OAuth configs no longer support
+  //    the older connectedAccounts.initiate path; /connected_accounts/link is
+  //    the current endpoint for user-facing OAuth redirect URLs.
+  const apiKey = process.env.COMPOSIO_API_KEY!;
+  const client = new ComposioApiClient({ apiKey });
+  const link = await client.link.create({
+    auth_config_id: authConfigId,
+    user_id: userId,
+    ...(opts?.callbackUrl ? { callback_url: opts.callbackUrl } : {}),
     ...(opts?.alias ? { alias: opts.alias } : {}),
   });
-  return { redirectUrl: conn.redirectUrl ?? null, connectionId: conn.id };
+  return {
+    redirectUrl: link.redirect_url ?? null,
+    connectionId: link.connected_account_id,
+  };
 }
 
 export async function disconnectToolkit(connectionId: string): Promise<void> {
