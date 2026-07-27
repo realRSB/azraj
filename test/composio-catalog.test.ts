@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { collectToolkitCatalog } from "../server/composio.js";
+import {
+  collectToolkitCatalog,
+  composioUserIdForConversation,
+  composioUserIdForPhone,
+} from "../server/composio.js";
 
 describe("Composio toolkit catalog pagination", () => {
   it("collects every page and maps API metadata", async () => {
@@ -49,5 +53,28 @@ describe("Composio toolkit catalog pagination", () => {
 
     await expect(collectToolkitCatalog(fetchPage)).rejects.toThrow("repeated cursor");
     expect(fetchPage).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("Composio public user scoping", () => {
+  it("maps a phone number to a stable non-phone Composio user id", () => {
+    vi.stubEnv("PUBLIC_AUTH_SECRET", "test-secret");
+
+    const first = composioUserIdForPhone("+17862139361");
+    const second = composioUserIdForPhone("+17862139361");
+
+    expect(first).toBe(second);
+    expect(first).toMatch(/^azraj-[a-f0-9]{32}$/);
+    expect(first).not.toContain("17862139361");
+  });
+
+  it("derives user scope only for sms phone conversations", () => {
+    vi.stubEnv("PUBLIC_AUTH_SECRET", "test-secret");
+
+    expect(composioUserIdForConversation("sms:+17862139361")).toBe(
+      composioUserIdForPhone("+17862139361"),
+    );
+    expect(composioUserIdForConversation("web:demo")).toBeUndefined();
+    expect(composioUserIdForConversation(undefined)).toBeUndefined();
   });
 });

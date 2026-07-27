@@ -1,6 +1,8 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -12,6 +14,7 @@ import {
   ArrowShrink02Icon,
   CheckmarkCircle02Icon,
   DashboardSquare01Icon,
+  Link04Icon,
   MachineRobotIcon,
   Settings01Icon,
   WorkflowCircle03Icon,
@@ -41,6 +44,7 @@ type DashboardView =
   | "messages"
   | "memory"
   | "automations"
+  | "connections"
   | "accountability"
   | "settings";
 type PublicDashboard = {
@@ -165,9 +169,45 @@ const DASHBOARD_NAV: Array<{ id: DashboardView; label: string; icon: any }> = [
   { id: "messages", label: "Messages", icon: Activity01Icon },
   { id: "memory", label: "Memory", icon: AiBrain02Icon },
   { id: "automations", label: "Automations", icon: WorkflowCircle03Icon },
+  { id: "connections", label: "Connections", icon: Link04Icon },
   { id: "accountability", label: "Accountability", icon: CheckmarkCircle02Icon },
   { id: "settings", label: "Settings", icon: Settings01Icon },
 ];
+
+type IntegrationAuthMode = "managed" | "byo";
+
+type IntegrationConnection = {
+  id: string;
+  status: string;
+  alias: string | null;
+  accountLabel: string | null;
+  accountEmail: string | null;
+  accountName: string | null;
+  accountAvatarUrl: string | null;
+  createdAt: string | null;
+};
+
+type IntegrationToolkit = {
+  slug: string;
+  displayName: string;
+  authMode: IntegrationAuthMode;
+  hasAuthConfig: boolean;
+  logoUrl: string | null;
+  description: string | null;
+  toolCount: number | null;
+  connections: IntegrationConnection[];
+};
+
+type IntegrationsResponse = {
+  enabled: boolean;
+  toolkits: IntegrationToolkit[];
+};
+
+type IntegrationToolSummary = {
+  slug: string;
+  name: string;
+  description?: string;
+};
 
 const storySteps = [
   {
@@ -324,6 +364,23 @@ async function parseJsonResponse(res: Response) {
   } catch {
     throw new Error("server returned an invalid response");
   }
+}
+
+async function publicAuthPost<T>(
+  path: string,
+  sessionToken: string,
+  body: Record<string, unknown> = {},
+): Promise<T> {
+  const res = await fetch(`/api/public-auth${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionToken, ...body }),
+  });
+  const data = await parseJsonResponse(res);
+  if (!res.ok) {
+    throw new Error(String(data.error ?? res.statusText));
+  }
+  return data as T;
 }
 
 export function App() {
@@ -837,16 +894,22 @@ function UserDashboard({
 
   return (
     <section className="debug-console-host" aria-label="Azraj dashboard">
-      <ConsumerDashboardShell dashboard={dashboard} onSignOut={onSignOut} />
+      <ConsumerDashboardShell
+        dashboard={dashboard}
+        sessionToken={sessionToken}
+        onSignOut={onSignOut}
+      />
     </section>
   );
 }
 
 function ConsumerDashboardShell({
   dashboard,
+  sessionToken,
   onSignOut,
 }: {
   dashboard: PublicDashboard;
+  sessionToken: string;
   onSignOut: () => void;
 }) {
   const [view, setView] = useState<DashboardView>("dashboard");
@@ -957,6 +1020,7 @@ function ConsumerDashboardShell({
             {view === "messages" && <MessagesView dashboard={dashboard} />}
             {view === "memory" && <MemoryView dashboard={dashboard} />}
             {view === "automations" && <AutomationsView dashboard={dashboard} />}
+            {view === "connections" && <ConnectionsView sessionToken={sessionToken} />}
             {view === "accountability" && <AccountabilityView dashboard={dashboard} />}
             {view === "settings" && (
               <SettingsView dashboard={dashboard} onSignOut={onSignOut} />
@@ -1151,6 +1215,310 @@ function AccountabilityView({ dashboard }: { dashboard: PublicDashboard }) {
         )}
       </section>
     </ConsumerPanel>
+  );
+}
+
+function ConnectionsView({ sessionToken }: { sessionToken: string }) {
+  const [data, setData] = useState<IntegrationsResponse | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [toolsBySlug, setToolsBySlug] = useState<
+    Record<string, IntegrationToolSummary[] | "loading" | "error">
+  >({});
+  const authPollRef = useRef<number | null>(null);
+
+  const loadIntegrations = useCallback(async () => {
+    try {
+      setError(null);
+      const next = await publicAuthPost<IntegrationsResponse>("/integrations", sessionToken);
+      setData(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setData({ enabled: false, toolkits: [] });
+    }
+  }, [sessionToken]);
+
+  useEffect(() => {
+    loadIntegrations();
+    return () => {
+      if (authPollRef.current) window.clearInterval(authPollRef.current);
+    };
+  }, [loadIntegrations]);
+
+  async function connect(slug: string) {
+    setBusy(slug);
+    setError(null);
+    try {
+      const { redirectUrl } = await publicAuthPost<{
+        redirectUrl: string | null;
+        connectionId: string;
+      }>(`/integrations/${slug}/authorize`, sessionToken);
+      if (!redirectUrl) {
+        await loadIntegrations();
+        return;
+      }
+
+      const width = 600;
+      const height = 720;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+      const popup = window.open(
+        redirectUrl,
+        "azraj-composio-auth",
+        `width=${width},height=${height},left=${left},top=${top}`,
+      );
+      if (authPollRef.current) window.clearInterval(authPollRef.current);
+      authPollRef.current = window.setInterval(async () => {
+        if (!popup || popup.closed) {
+          if (authPollRef.current) {
+            window.clearInterval(authPollRef.current);
+            authPollRef.current = null;
+          }
+          await loadIntegrations();
+          setBusy(null);
+        }
+      }, 800);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setBusy(null);
+    }
+  }
+
+  async function disconnect(slug: string, connectionId: string) {
+    setBusy(`${slug}:${connectionId}`);
+    setError(null);
+    try {
+      await publicAuthPost(`/integrations/${slug}/disconnect`, sessionToken, { connectionId });
+      await loadIntegrations();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function toggleTools(slug: string) {
+    const willExpand = !expanded[slug];
+    setExpanded((prev) => ({ ...prev, [slug]: willExpand }));
+    if (!willExpand || toolsBySlug[slug]) return;
+    setToolsBySlug((prev) => ({ ...prev, [slug]: "loading" }));
+    try {
+      const result = await publicAuthPost<{ tools: IntegrationToolSummary[] }>(
+        `/integrations/${slug}/tools`,
+        sessionToken,
+      );
+      setToolsBySlug((prev) => ({ ...prev, [slug]: result.tools }));
+    } catch {
+      setToolsBySlug((prev) => ({ ...prev, [slug]: "error" }));
+    }
+  }
+
+  const toolkits = data?.toolkits ?? [];
+  const connectedCount = toolkits.reduce(
+    (count, toolkit) =>
+      count + toolkit.connections.filter((conn) => conn.status === "ACTIVE").length,
+    0,
+  );
+
+  return (
+    <ConsumerPanel eyebrow="Integrations" title="Connections">
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
+        <SmallStat label="connected" value={connectedCount} />
+        <SmallStat label="available" value={toolkits.length} />
+        <SmallStat label="oauth" value={data?.enabled ? "ready" : "off"} />
+        <SmallStat label="scope" value="phone" />
+      </div>
+
+      {error && (
+        <div className="rounded-2xl border border-rose-400/20 bg-rose-400/10 p-4 text-sm text-rose-200">
+          {error}
+        </div>
+      )}
+
+      {!data ? (
+        <section className="rounded-2xl border border-white/10 bg-[#1d1d20] p-4 text-sm text-zinc-500">
+          loading connections...
+        </section>
+      ) : !data.enabled ? (
+        <section className="rounded-2xl border border-white/10 bg-[#1d1d20] p-4">
+          <h3 className="text-sm font-semibold text-zinc-100">Composio is not configured</h3>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
+            Add `COMPOSIO_API_KEY` on the server to let users connect Gmail,
+            Calendar, Notion, Slack, GitHub, and more.
+          </p>
+        </section>
+      ) : (
+        <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+          {toolkits.map((toolkit) => (
+            <IntegrationCard
+              key={toolkit.slug}
+              toolkit={toolkit}
+              busy={busy}
+              expanded={Boolean(expanded[toolkit.slug])}
+              tools={toolsBySlug[toolkit.slug]}
+              onConnect={connect}
+              onDisconnect={disconnect}
+              onToggleTools={toggleTools}
+            />
+          ))}
+        </section>
+      )}
+    </ConsumerPanel>
+  );
+}
+
+function IntegrationCard({
+  toolkit,
+  busy,
+  expanded,
+  tools,
+  onConnect,
+  onDisconnect,
+  onToggleTools,
+}: {
+  toolkit: IntegrationToolkit;
+  busy: string | null;
+  expanded: boolean;
+  tools: IntegrationToolSummary[] | "loading" | "error" | undefined;
+  onConnect: (slug: string) => void;
+  onDisconnect: (slug: string, connectionId: string) => void;
+  onToggleTools: (slug: string) => void;
+}) {
+  const activeConnections = toolkit.connections.filter((conn) => conn.status === "ACTIVE");
+  const pendingConnections = toolkit.connections.filter((conn) => conn.status !== "ACTIVE");
+  const isBusy = busy === toolkit.slug;
+  const needsSetup =
+    toolkit.authMode === "byo" && !toolkit.hasAuthConfig && toolkit.connections.length === 0;
+
+  return (
+    <article className="overflow-hidden rounded-2xl border border-white/10 bg-[#1d1d20]">
+      <div className="flex items-start gap-3 p-4">
+        <IntegrationLogoMark toolkit={toolkit} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="truncate text-sm font-semibold text-zinc-100">
+              {toolkit.displayName}
+            </h3>
+            {activeConnections.length > 0 ? (
+              <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                connected
+              </span>
+            ) : pendingConnections.length > 0 ? (
+              <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+                pending
+              </span>
+            ) : (
+              <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] font-medium text-zinc-500">
+                not connected
+              </span>
+            )}
+          </div>
+          <p className="mt-2 line-clamp-2 text-xs leading-5 text-zinc-500">
+            {toolkit.description ??
+              `${toolkit.displayName} tools become available to Azraj after you connect.`}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={isBusy || needsSetup}
+          onClick={() => onConnect(toolkit.slug)}
+          className="shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-zinc-200 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isBusy ? "opening..." : activeConnections.length > 0 ? "add account" : "connect"}
+        </button>
+      </div>
+
+      {needsSetup && (
+        <div className="border-t border-white/10 bg-amber-400/10 px-4 py-3 text-xs leading-5 text-amber-100">
+          This toolkit needs a one-time auth config in Composio before users can connect it.
+        </div>
+      )}
+
+      {toolkit.connections.length > 0 && (
+        <div className="divide-y divide-white/10 border-t border-white/10">
+          {toolkit.connections.map((connection) => (
+            <div
+              key={connection.id}
+              className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm text-zinc-200">
+                  {connection.alias ??
+                    connection.accountLabel ??
+                    connection.accountEmail ??
+                    connection.accountName ??
+                    "connected account"}
+                </div>
+                <div className="mt-1 font-mono text-[11px] uppercase text-zinc-500">
+                  {connection.status}
+                </div>
+              </div>
+              <button
+                type="button"
+                disabled={busy === `${toolkit.slug}:${connection.id}`}
+                onClick={() => onDisconnect(toolkit.slug, connection.id)}
+                className="rounded-xl border border-white/10 px-2.5 py-1.5 text-xs text-zinc-400 transition hover:bg-white/5 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                disconnect
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="border-t border-white/10 px-4 py-3">
+        <button
+          type="button"
+          onClick={() => onToggleTools(toolkit.slug)}
+          className="text-xs font-medium text-zinc-400 transition hover:text-zinc-100"
+        >
+          {expanded ? "hide tools" : `view tools${toolkit.toolCount ? ` (${toolkit.toolCount})` : ""}`}
+        </button>
+        {expanded && (
+          <div className="mt-3 max-h-56 overflow-auto rounded-xl border border-white/10 bg-black/20 p-3">
+            {tools === "loading" && <p className="text-xs text-zinc-500">loading tools...</p>}
+            {tools === "error" && (
+              <p className="text-xs text-rose-300">could not load this toolkit's tools.</p>
+            )}
+            {Array.isArray(tools) && (
+              <div className="space-y-2">
+                {tools.slice(0, 24).map((tool) => (
+                  <div key={tool.slug} className="text-xs">
+                    <div className="font-mono text-zinc-300">{tool.name}</div>
+                    {tool.description && (
+                      <p className="mt-1 line-clamp-2 leading-5 text-zinc-500">
+                        {tool.description}
+                      </p>
+                    )}
+                  </div>
+                ))}
+                {tools.length > 24 && (
+                  <p className="text-xs text-zinc-500">+{tools.length - 24} more tools</p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function IntegrationLogoMark({ toolkit }: { toolkit: IntegrationToolkit }) {
+  if (toolkit.logoUrl) {
+    return (
+      <img
+        src={toolkit.logoUrl}
+        alt=""
+        className="h-10 w-10 shrink-0 rounded-2xl border border-white/10 bg-white object-contain p-1.5"
+      />
+    );
+  }
+  return (
+    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl border border-white/10 bg-white/5 text-sm font-semibold text-zinc-200">
+      {toolkit.displayName.slice(0, 1)}
+    </div>
   );
 }
 
