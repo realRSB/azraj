@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import express from "express";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
@@ -10,6 +11,7 @@ import { verifySendblueWebhookSecret } from "./sendblue-webhook-auth.js";
 
 const API_BASE = "https://api.sendblue.com/api";
 const MAX_CHUNK = 2900;
+const SYNTHETIC_DEDUP_BUCKET_MS = 5 * 60 * 1000;
 
 export function extractSendblueMediaUrls(
   mediaUrl: unknown,
@@ -61,6 +63,30 @@ function headers(): Record<string, string> | null {
     "sb-api-key-id": apiKey,
     "sb-api-secret-key": apiSecret,
   };
+}
+
+function syntheticInboundHandle(args: {
+  fromNumber: string;
+  content: unknown;
+  mediaUrls: string[];
+}): string {
+  const text =
+    typeof args.content === "string"
+      ? args.content.trim().toLowerCase().replace(/\s+/g, " ")
+      : "";
+  const bucket = Math.floor(Date.now() / SYNTHETIC_DEDUP_BUCKET_MS);
+  const digest = createHash("sha256")
+    .update(
+      JSON.stringify({
+        fromNumber: normalizeE164(args.fromNumber) ?? args.fromNumber,
+        text,
+        mediaUrls: args.mediaUrls,
+        bucket,
+      }),
+    )
+    .digest("hex")
+    .slice(0, 32);
+  return `synthetic:${digest}`;
 }
 
 export function normalizeE164(n: string | undefined): string | undefined {
@@ -277,12 +303,17 @@ export function createSendblueRouter(): express.Router {
       return;
     }
 
-    if (message_handle) {
-      const { claimed } = await convex.mutation(api.sendblueDedup.claim, {
-        handle: message_handle,
-      });
+    const dedupHandles = [
+      typeof message_handle === "string" && message_handle.trim()
+        ? message_handle.trim()
+        : null,
+      syntheticInboundHandle({ fromNumber: from_number, content, mediaUrls: rawUrls }),
+    ].filter((handle): handle is string => Boolean(handle));
+
+    for (const handle of dedupHandles) {
+      const { claimed } = await convex.mutation(api.sendblueDedup.claim, { handle });
       if (!claimed) {
-        res.json({ ok: true, deduped: true });
+        res.json({ ok: true, deduped: true, handle });
         return;
       }
     }

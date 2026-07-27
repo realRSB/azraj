@@ -182,7 +182,11 @@ Use when the user says "use opus", "switch to sonnet", "use Codex mini", "make i
         const summary = connected.map((c) => ({
           slug: c.slug,
           status: c.status,
-          account: c.accountLabel ?? c.accountEmail ?? c.alias ?? "(unknown)",
+          account:
+            c.accountLabel ??
+            c.accountEmail ??
+            c.alias ??
+            "(account label unavailable)",
           connectionId: c.connectionId,
         }));
         return runtimeText(
@@ -272,7 +276,11 @@ Use when the user says "use opus", "switch to sonnet", "use Codex mini", "make i
           authMode: curated?.authMode,
           connections: connected.map((c) => ({
             status: c.status,
-            account: c.accountLabel ?? c.accountEmail ?? c.alias ?? "(unknown)",
+            account:
+              c.accountLabel ??
+              c.accountEmail ??
+              c.alias ??
+              "(account label unavailable)",
             id: c.connectionId,
           })),
           availableForSpawn: (await listEnabledIntegrations(opts.composioUserId)).some(
