@@ -54,6 +54,48 @@ function chunk(text: string, size = MAX_CHUNK): string[] {
   return out;
 }
 
+// Outbound safety gate.
+//
+// A dev box running the full pipeline can text the real user for real: /chat,
+// the debug UI, a streak touch, or an automation tick all reach sendImessage /
+// sendMms. That has bitten us — a local test turn using a real conversation id
+// pushed an unwanted streak card to the user's phone, and a local instance
+// answering alongside production produced double replies. Blocking the inbound
+// webhook (SENDBLUE_AUTO_WEBHOOK=false) does NOT prevent this; that flag only
+// controls who RECEIVES.
+//
+// So: only a real deployment may send. "Real deployment" reuses the convention
+// already used elsewhere in the server — PUBLIC_URL set to a non-localhost
+// value. Local dev (PUBLIC_URL unset or localhost) is blocked unless the
+// developer explicitly opts in with BOOP_ALLOW_OUTBOUND_SMS=true.
+function outboundBlockedReason(): string | null {
+  const optIn = process.env.BOOP_ALLOW_OUTBOUND_SMS;
+  if (optIn === "true") return null;
+  if (optIn === "false") return "BOOP_ALLOW_OUTBOUND_SMS=false";
+  const publicUrl = process.env.PUBLIC_URL ?? "";
+  const isDeployment =
+    publicUrl.length > 0 &&
+    !publicUrl.includes("localhost") &&
+    !publicUrl.includes("127.0.0.1");
+  if (isDeployment) return null;
+  return "not a deployment (PUBLIC_URL is unset/localhost) and BOOP_ALLOW_OUTBOUND_SMS is not true";
+}
+
+// Exported so callers/tests can check without attempting a send.
+export function outboundSmsAllowed(): boolean {
+  return outboundBlockedReason() === null;
+}
+
+function blockOutbound(kind: string, toNumber: string): boolean {
+  const reason = outboundBlockedReason();
+  if (!reason) return false;
+  console.warn(
+    `[sendblue] BLOCKED outbound ${kind} to ${redactContactHandle(toNumber)} — ${reason}. ` +
+      `Set BOOP_ALLOW_OUTBOUND_SMS=true in .env.local if you really mean to text a real phone from here.`,
+  );
+  return true;
+}
+
 function headers(): Record<string, string> | null {
   const apiKey = process.env.SENDBLUE_API_KEY;
   const apiSecret = process.env.SENDBLUE_API_SECRET;
@@ -101,6 +143,7 @@ export function normalizeE164(n: string | undefined): string | undefined {
 }
 
 export async function sendImessage(toNumber: string, text: string): Promise<void> {
+  if (blockOutbound("message", toNumber)) return;
   const h = headers();
   if (!h) {
     console.warn("[sendblue] missing credentials — not sending");
@@ -154,6 +197,7 @@ export async function sendMms(
   mediaUrl: string,
   caption?: string,
 ): Promise<boolean> {
+  if (blockOutbound("MMS", toNumber)) return false;
   const h = headers();
   if (!h) {
     console.warn("[sendblue] missing credentials — not sending MMS");
@@ -187,6 +231,7 @@ export async function sendMms(
 }
 
 export async function sendTypingIndicator(toNumber: string): Promise<void> {
+  if (outboundBlockedReason()) return; // silent: the send itself already warned
   const h = headers();
   if (!h) return;
   const from = process.env.SENDBLUE_FROM_NUMBER;

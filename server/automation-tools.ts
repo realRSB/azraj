@@ -14,6 +14,17 @@ function randomId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+// Collapse a name to a comparison key so trivially-different labels
+// ("SAT R&W module check-in" vs "SAT R&W module check in") count as the same
+// automation and don't pile up as duplicates.
+export function normalizeAutomationName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+export function isSameAutomationName(a: string, b: string): boolean {
+  return normalizeAutomationName(a) === normalizeAutomationName(b);
+}
+
 export function createAutomationTools(conversationId: string): RuntimeTool[] {
   const integrationHint = availableIntegrations().join(", ") || "(none configured)";
 
@@ -32,6 +43,8 @@ Examples:
   "0 18 * * 0"     — Sundays at 6pm (user-local)
 
 If you don't yet know the user's timezone (get_config returns userTimezone=null), ASK before creating any time-of-day automation — otherwise it'll fire in the server's zone, which is almost always wrong.
+
+ONE automation per recurring task. Re-calling with the SAME name UPDATES/REPLACES that automation (any existing one with that name is removed first) — so to change a check-in's time or scope, re-create it with the same name. Do NOT invent a second, slightly-renamed variant for a task you're already checking in on; that's how the user ends up getting the same reminder several times.
 
 Use this for anything the user says "every [time]" or "remind me" about.
 Integrations available: ${integrationHint}`,
@@ -61,6 +74,17 @@ Integrations available: ${integrationHint}`,
         if (!validation.valid) {
           return runtimeText(`Invalid cron expression: ${validation.error}`, false);
         }
+        // De-dupe: at most ONE automation per (normalized) name for this
+        // conversation. Any existing same-named automation is removed first, so
+        // re-creating with the same name updates in place instead of piling up
+        // duplicate reminders (the root cause of "stop texting me about this").
+        const allForConvo = (
+          await convex.query(api.automations.list, { enabledOnly: false })
+        ).filter((a) => a.conversationId === conversationId);
+        const duplicates = allForConvo.filter((a) => isSameAutomationName(a.name, args.name));
+        for (const dup of duplicates) {
+          await convex.mutation(api.automations.remove, { automationId: dup.automationId });
+        }
         const automationId = randomId("auto");
         const nextRunAt = nextRunFor(args.schedule, timezone) ?? undefined;
         await convex.mutation(api.automations.create, {
@@ -88,8 +112,12 @@ Integrations available: ${integrationHint}`,
         const tzNote = tzInfo.isExplicit
           ? `timezone: ${timezone}`
           : `timezone: ${timezone} (server fallback — user has not set theirs; ask them and call set_timezone)`;
+        const verb = duplicates.length ? "Replaced" : "Created";
+        const dupNote = duplicates.length
+          ? ` (removed ${duplicates.length} duplicate${duplicates.length > 1 ? "s" : ""} with the same name)`
+          : "";
         return runtimeText(
-          `Created automation ${automationId} "${args.name}" — next run: ${nextStr} (${tzNote}).`,
+          `${verb} automation ${automationId} "${args.name}"${dupNote} — next run: ${nextStr} (${tzNote}).`,
         );
       },
     ),

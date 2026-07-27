@@ -8,6 +8,82 @@ Format:
 
 ---
 
+## Unreleased — Outbound SMS is deployment-only
+
+- Fixed: a local dev instance could text the real user for real. Every outbound
+  path (replies, streak cards, automation check-ins, typing indicators) runs
+  through the same client, so a `/chat` call or debug-UI turn using a real
+  conversation id sent an actual iMessage — in practice this pushed an unwanted
+  duplicate streak card to the user's phone from a developer's machine.
+  `SENDBLUE_AUTO_WEBHOOK=false` does not help: it only controls who *receives*.
+- Changed: outbound sending now requires a real deployment — `PUBLIC_URL` set to
+  a non-localhost value, the convention already used elsewhere in the server.
+  Local dev is blocked by default with a clear one-line warning naming the
+  reason and the override. Set `BOOP_ALLOW_OUTBOUND_SMS=true` to opt in
+  deliberately, or `=false` to hard-disable even on a deployment. Covered by
+  `test/outbound-guard.test.ts`.
+
+## Unreleased — Situational awareness + coaching intelligence
+
+- Added: `server/situation.ts` assembles a per-turn state block that is injected
+  into the dispatcher prompt, so Azraj is grounded in reality instead of relying
+  on the model remembering to call tools. It carries: the current date/time and
+  part-of-day **in the user's timezone** (previously Azraj had no idea what day
+  it was), their texting streak, today's accountability contract with objective
+  status, the live list of active check-ins, and memories pre-recalled against
+  the incoming message. Sections are fetched concurrently and every one degrades
+  to "(unavailable)" on failure, so this never blocks a reply.
+- Fixed: the root cause behind duplicate reminders and unrecognized tasks —
+  grounding was *probabilistic*. The prompt told the model to call `recall()` /
+  `get_daily_contract` / `list_automations`, but nothing guaranteed it did. The
+  live check-in list is now always in view before a new one can be created, and
+  relevant memories are present before Azraj can claim it doesn't know something.
+- Changed: the system prompt gained a coaching-intelligence section — track the
+  thread across fragmented texts (a bare score answers the question you asked),
+  drive one concrete next action, make goals measurable, name repeating patterns
+  instead of re-asking, read frustration/fatigue and back off, and never
+  re-litigate finished work. Plus rules for treating the state block as
+  authoritative and never asking what it already answers.
+
+## Unreleased — Streak count repair endpoint
+
+- Added: `streaks.adminSet` Convex mutation + a token-gated `POST
+  /streak/admin/set-count` route to correct a streak's counters (data repair for
+  a count that drifted low, e.g. while inbound texts were split across two
+  instances). Disabled unless `STREAK_ADMIN_TOKEN` is set; requires a matching
+  `x-admin-token` header (constant-time compared). Also runnable directly via
+  `npx convex run streaks:adminSet --prod '{...}'`.
+
+## Unreleased — Smarter accountability: no duplicate check-ins
+
+- Fixed: Azraj piled up several recurring automations for the same task (e.g.
+  the same "SAT R&W module check-in" firing over and over) and kept pinging even
+  after the user answered — the fastest way to lose an accountability user.
+  `create_automation` now de-dupes by name: re-calling with the same name
+  removes the existing same-named automation(s) first, so refining a check-in's
+  time/scope updates it in place instead of adding a duplicate.
+- Changed: the dispatcher is instructed to keep **one check-in per task**,
+  recognize when the user is talking about a task it already tracks (and update
+  that one rather than spinning up a new one), and **delete/disable** the related
+  check-in the moment the task is done or the user pushes back ("stop", "I
+  already said yes"). A check-in about a one-time thing must not run forever.
+
+## Unreleased — Streak card fix: real fonts + real photos on any host
+
+- Fixed: the streak card rendered as "tofu" (missing-glyph boxes) on the
+  Linux/Railway deploy because the SVG text depended on system fonts (Segoe UI /
+  Helvetica / Arial) that don't exist in the container, and librsvg ignores
+  embedded `@font-face`. Text is now drawn with sharp's native (Pango) renderer
+  pointed at a bundled **Inter** font file, so it renders identically on every
+  host. Inter (OFL) is committed under `assets/fonts/`.
+- Changed: the card is now **always a real photo, never vector scenery**. It
+  fetches a fresh landscape photo every day (Lorem Picsum seeded by the date, or
+  Unsplash when `UNSPLASH_ACCESS_KEY` is set), falling back to a committed set of
+  scenic photos in `assets/streak-fallbacks/` (Unsplash License). The built-in
+  vector scenes were removed.
+- Changed: simplified the card to the streak **number + a small "days"** — the
+  "DAY STREAK" label, hype subline, and date line were removed.
+
 ## Unreleased — Weekly mindset + person of the week
 
 - Added: an opt-in weekly ritual (`BOOP_WEEKLY_ENABLED=true`). Azraj asks each
