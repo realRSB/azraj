@@ -20,6 +20,25 @@ export default defineSchema({
     expiresAt: v.number(),
   }).index("by_token", ["sessionToken"]),
 
+  dashboardMagicLinks: defineTable({
+    userId: v.id("users"),
+    phoneE164: v.string(),
+    tokenHash: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+  })
+    .index("by_token_hash", ["tokenHash"])
+    .index("by_phone", ["phoneE164"]),
+
+  publicJoinCodes: defineTable({
+    codeHash: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    phoneE164: v.optional(v.string()),
+  }).index("by_code_hash", ["codeHash"]),
+
   phoneOtps: defineTable({
     phoneE164: v.string(),
     codeHash: v.string(),
