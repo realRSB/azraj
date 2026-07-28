@@ -471,6 +471,7 @@ export function App() {
   const [code, setCode] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authNeedsThread, setAuthNeedsThread] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [copied, setCopied] = useState<"number" | "message" | null>(null);
   const [activeStep, setActiveStep] = useState(0);
@@ -607,6 +608,7 @@ export function App() {
     event.preventDefault();
     setAuthBusy(true);
     setAuthError(null);
+    setAuthNeedsThread(false);
     setDevCode(null);
     try {
       const res = await fetch("/api/public-auth/start", {
@@ -615,7 +617,10 @@ export function App() {
         body: JSON.stringify({ phone }),
       });
       const data = await parseJsonResponse(res);
-      if (!res.ok) throw new Error(String(data.error ?? "couldn't send code"));
+      if (!res.ok) {
+        setAuthNeedsThread(data.code === "otp_delivery_failed");
+        throw new Error(String(data.error ?? "couldn't send code"));
+      }
       setVerifiedPhone(String(data.phoneE164 ?? ""));
       setDevCode(typeof data.devCode === "string" ? data.devCode : null);
       setConnectStep("code");
@@ -651,6 +656,7 @@ export function App() {
   function signOut() {
     setSessionToken(null);
     setConnectStep("phone");
+    setAuthNeedsThread(false);
     setVerifiedPhone("");
     setPhone("");
     if (page === "dashboard") navigate("home");
@@ -718,6 +724,7 @@ export function App() {
           devCode={devCode}
           busy={authBusy}
           error={authError}
+          needsThread={authNeedsThread}
           copied={copied}
           starterMessage={starterMessage}
           smsHref={smsHref}
@@ -781,6 +788,7 @@ function ConnectModal({
   devCode,
   busy,
   error,
+  needsThread,
   copied,
   starterMessage,
   smsHref,
@@ -799,6 +807,7 @@ function ConnectModal({
   devCode: string | null;
   busy: boolean;
   error: string | null;
+  needsThread: boolean;
   copied: "number" | "message" | null;
   starterMessage: string;
   smsHref: string;
@@ -828,7 +837,7 @@ function ConnectModal({
         </h2>
         <p className="connect-copy">
           {step === "phone" &&
-            "verify your number first so azraj can connect your texts to your dashboard."}
+            "text azraj first, then verify that same number to unlock your dashboard."}
           {step === "code" &&
             `enter the 6-digit code sent to ${maskPhone(verifiedPhone || phone)}.`}
           {step === "connected" &&
@@ -837,6 +846,17 @@ function ConnectModal({
 
         {step === "phone" && (
           <form className="connect-form" onSubmit={onStart}>
+            <div className={`text-first-card ${needsThread ? "is-active" : ""}`}>
+              <span>{needsThread ? "one quick step" : "first time here?"}</span>
+              <p>
+                open iMessage and send the starter text. after Azraj has the thread,
+                come back and hit send code.
+              </p>
+              <a className="connect-open connect-open-inline" href={smsHref}>
+                <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
+                Text Azraj first
+              </a>
+            </div>
             <label>
               <span>phone number</span>
               <input
@@ -904,7 +924,7 @@ function ConnectModal({
           </>
         )}
 
-        {error && <p className="connect-error">{error}</p>}
+        {error && <p className={`connect-error ${needsThread ? "is-soft" : ""}`}>{error}</p>}
         <p className="connect-help">
           Didn&apos;t open? Copy the message, then send it to the Azraj number above.
         </p>

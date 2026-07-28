@@ -337,8 +337,9 @@ export function createPublicAuthRouter(): express.Router {
     const sent = await sendImessage(phoneE164, text);
     if (!sent) {
       res.status(502).json({
+        code: "otp_delivery_failed",
         error:
-          "couldn't send the login code. text Azraj first, then try again, or contact Rajveer if it still fails.",
+          "start the iMessage thread first, then come back and send the code again.",
       });
       return;
     }

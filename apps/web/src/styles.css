@@ -450,6 +450,45 @@ button {
   text-align: left;
 }
 
+.text-first-card {
+  display: grid;
+  gap: 0.7rem;
+  border: 1px solid rgba(7, 139, 255, 0.16);
+  border-radius: 1rem;
+  background:
+    linear-gradient(135deg, rgba(7, 139, 255, 0.1), rgba(52, 211, 153, 0.08)),
+    rgba(248, 250, 252, 0.9);
+  padding: 0.95rem;
+  text-align: center;
+}
+
+.text-first-card.is-active {
+  border-color: rgba(7, 139, 255, 0.34);
+  box-shadow: 0 0 0 4px rgba(7, 139, 255, 0.08);
+}
+
+.text-first-card span {
+  color: var(--blue);
+  font-size: 0.78rem;
+  font-weight: 950;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.text-first-card p {
+  margin: 0;
+  color: rgba(30, 41, 59, 0.78);
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.connect-open-inline {
+  min-height: 3.1rem;
+  margin-block-start: 0;
+  box-shadow: 0 0.8rem 2rem rgba(0, 0, 0, 0.12);
+}
+
 .connect-form label {
   display: grid;
   gap: 0.45rem;
@@ -517,6 +556,11 @@ button {
 .connect-error {
   background: rgba(244, 63, 94, 0.1);
   color: #be123c;
+}
+
+.connect-error.is-soft {
+  background: rgba(7, 139, 255, 0.08);
+  color: #075985;
 }
 
 .connect-dev-code {
