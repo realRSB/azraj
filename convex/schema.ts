@@ -217,7 +217,8 @@ export default defineSchema({
   })
     .index("by_automation_id", ["automationId"])
     .index("by_enabled", ["enabled"])
-    .index("by_conversation", ["conversationId"]),
+    .index("by_conversation", ["conversationId"])
+    .index("by_notify_conversation", ["notifyConversationId"]),
 
   sendblueDedup: defineTable({
     handle: v.string(),

@@ -10,6 +10,23 @@ type AccountabilityPlanForDashboard = Doc<"dailyPlans"> & {
   objectives: Doc<"dailyObjectives">[];
 };
 
+// The dashboard's executionAgents/automations/automationRuns reads run one
+// indexed query per conversationId (or per notifyConversationId, or per
+// automationId) and flatten the results, so a row that matches more than one
+// of those queries — e.g. an automation whose conversationId and
+// notifyConversationId are both owned by this user — would otherwise appear
+// twice.
+function dedupeById<T extends { _id: unknown }>(rows: T[]): T[] {
+  const seen = new Set<T["_id"]>();
+  const out: T[] = [];
+  for (const row of rows) {
+    if (seen.has(row._id)) continue;
+    seen.add(row._id);
+    out.push(row);
+  }
+  return out;
+}
+
 async function getUserByPhone(ctx: Ctx, phoneE164: string) {
   return await ctx.db
     .query("users")
@@ -230,15 +247,13 @@ export const dashboard = query({
         `sms:${result.user.phoneE164}`,
       ]),
     ];
-    const conversationSet = new Set(conversationIds);
-
     const [
       messages,
       memories,
       usageRecords,
-      agents,
-      automations,
-      automationRuns,
+      agentsByConversation,
+      automationsByConversation,
+      automationsByNotify,
       dailyPlans,
     ] = await Promise.all([
       Promise.all(
@@ -268,9 +283,43 @@ export const dashboard = query({
             .take(DASHBOARD_SCAN_LIMIT),
         ),
       ),
-      ctx.db.query("executionAgents").order("desc").take(DASHBOARD_SCAN_LIMIT),
-      ctx.db.query("automations").order("desc").take(DASHBOARD_SCAN_LIMIT),
-      ctx.db.query("automationRuns").order("desc").take(DASHBOARD_SCAN_LIMIT),
+      // executionAgents/automations were previously each a single unindexed
+      // `.order("desc").take(5000)` scan across EVERY user's rows, then
+      // filtered down to this user's conversations in JS. Two problems: it
+      // read up to 5000 documents per dashboard load regardless of how much
+      // of that belonged to this user, and a busy deployment could push a
+      // user's own rows past the 5000-row cutoff entirely — their agents
+      // would silently stop appearing. Querying by the indexed
+      // conversationId (already used for messages/memories above) instead
+      // bounds the read to what this user actually owns.
+      Promise.all(
+        conversationIds.map((conversationId) =>
+          ctx.db
+            .query("executionAgents")
+            .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
+            .collect(),
+        ),
+      ),
+      Promise.all(
+        conversationIds.map((conversationId) =>
+          ctx.db
+            .query("automations")
+            .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
+            .collect(),
+        ),
+      ),
+      // notifyConversationId can differ from conversationId (an automation
+      // created in one conversation can push results to another), so it
+      // needs its own indexed lookup rather than being caught by the query
+      // above.
+      Promise.all(
+        conversationIds.map((conversationId) =>
+          ctx.db
+            .query("automations")
+            .withIndex("by_notify_conversation", (q) => q.eq("notifyConversationId", conversationId))
+            .collect(),
+        ),
+      ),
       Promise.all(
         conversationIds.map((conversationId) =>
           ctx.db
@@ -288,16 +337,24 @@ export const dashboard = query({
       .filter((memory) => memory.lifecycle === "active")
       .sort((a, b) => b.createdAt - a.createdAt);
     const usageRows = usageRecords.flat();
-    const agentRows = agents.filter(
-      (agent) => agent.conversationId && conversationSet.has(agent.conversationId),
-    );
-    const automationRows = automations.filter(
-      (automation) =>
-        (automation.conversationId && conversationSet.has(automation.conversationId)) ||
-        (automation.notifyConversationId && conversationSet.has(automation.notifyConversationId)),
-    );
+    const agentRows = dedupeById(agentsByConversation.flat());
+    const automationRows = dedupeById([
+      ...automationsByConversation.flat(),
+      ...automationsByNotify.flat(),
+    ]);
     const automationIds = new Set(automationRows.map((automation) => automation.automationId));
-    const automationRunRows = automationRuns.filter((run) => automationIds.has(run.automationId));
+    const automationRunRows = dedupeById(
+      (
+        await Promise.all(
+          [...automationIds].map((automationId) =>
+            ctx.db
+              .query("automationRuns")
+              .withIndex("by_automation", (q) => q.eq("automationId", automationId))
+              .collect(),
+          ),
+        )
+      ).flat(),
+    );
     const planRows = dailyPlans.flat().sort((a, b) => b.updatedAt - a.updatedAt);
     const objectivesByPlan = new Map<Id<"dailyPlans">, Doc<"dailyObjectives">[]>();
     await Promise.all(
