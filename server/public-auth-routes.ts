@@ -24,7 +24,7 @@ import {
   listToolsForToolkit,
   renameConnection,
 } from "./composio.js";
-import { dashboardMagicTokenHash } from "./public-auth-magic.js";
+import { dashboardMagicTokenHash, issueJoinCode } from "./public-auth-magic.js";
 
 const OTP_TTL_MS = 1000 * 60 * 10;
 
@@ -321,6 +321,16 @@ export function createPublicAuthRouter(): express.Router {
     } catch (err) {
       console.error("[public-auth] timezone update failed", err);
       res.status(500).json({ error: String(err) });
+    }
+  });
+
+  router.post("/join/start", async (_req, res) => {
+    try {
+      const result = await issueJoinCode();
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      console.error("[public-auth] join code issue failed", err);
+      res.status(500).json({ error: "couldn't create a join code" });
     }
   });
 

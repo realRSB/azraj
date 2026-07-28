@@ -136,6 +136,7 @@ export function isPublicServerRequest(request: RequestLike): boolean {
   const isPublicAuthPost =
     method === "POST" &&
     (publicAuthPath === "/start" ||
+      publicAuthPath === "/join/start" ||
       publicAuthPath === "/verify" ||
       publicAuthPath === "/magic/verify" ||
       publicAuthPath === "/dashboard" ||

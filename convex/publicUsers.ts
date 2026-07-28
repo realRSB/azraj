@@ -210,6 +210,52 @@ export const redeemDashboardMagicLink = mutation({
   },
 });
 
+export const issueJoinCode = mutation({
+  args: {
+    codeHash: v.string(),
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    return await ctx.db.insert("publicJoinCodes", {
+      codeHash: args.codeHash,
+      createdAt: now,
+      expiresAt: args.expiresAt,
+    });
+  },
+});
+
+export const consumeJoinCode = mutation({
+  args: {
+    codeHash: v.string(),
+    phoneE164: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const joinCode = await ctx.db
+      .query("publicJoinCodes")
+      .withIndex("by_code_hash", (q) => q.eq("codeHash", args.codeHash))
+      .order("desc")
+      .first();
+    if (!joinCode || joinCode.consumedAt || joinCode.expiresAt < now) {
+      return { ok: false as const, reason: "expired" };
+    }
+    const userId = await ensureUser(ctx, args.phoneE164);
+    const conversationId = `sms:${args.phoneE164}`;
+    await linkConversation(ctx, userId, args.phoneE164, conversationId);
+    await ctx.db.patch(userId, {
+      onboardingStatus: "connected",
+      updatedAt: now,
+      lastSeenAt: now,
+    });
+    await ctx.db.patch(joinCode._id, {
+      consumedAt: now,
+      phoneE164: args.phoneE164,
+    });
+    return { ok: true as const, phoneE164: args.phoneE164, conversationId };
+  },
+});
+
 export const linkInboundConversation = mutation({
   args: {
     phoneE164: v.string(),

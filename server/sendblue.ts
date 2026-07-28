@@ -9,7 +9,9 @@ import { redactContactHandle, redactPhoneNumbers } from "./privacy.js";
 import {
   dashboardLinkIntent,
   dashboardMagicMessage,
+  extractJoinCode,
   issueDashboardMagicLink,
+  joinCodeHash,
 } from "./public-auth-magic.js";
 import { maybeHandleScriptedDemoReply } from "./scripted-demo-replies.js";
 import { verifySendblueWebhookSecret } from "./sendblue-webhook-auth.js";
@@ -382,18 +384,25 @@ export function createSendblueRouter(): express.Router {
     const normalizedFrom = normalizeE164(from_number);
     const conversationId = `sms:${normalizedFrom ?? from_number}`;
     let dashboardLinkMode: "command" | "welcome" | null = null;
+    let joinCodeResult: { ok: boolean; reason?: string } | null = null;
+    const textForLog = typeof content === "string" ? content : "";
     if (normalizedFrom) {
       const linked = await convex.mutation(api.publicUsers.linkInboundConversation, {
         phoneE164: normalizedFrom,
         conversationId,
       });
-      dashboardLinkMode = dashboardLinkIntent(
-        typeof content === "string" ? content : "",
-        Boolean(linked.isNewUser),
-      );
+      const joinCode = extractJoinCode(textForLog);
+      if (joinCode) {
+        joinCodeResult = await convex.mutation(api.publicUsers.consumeJoinCode, {
+          phoneE164: normalizedFrom,
+          codeHash: joinCodeHash(joinCode),
+        });
+        dashboardLinkMode = joinCodeResult.ok ? "welcome" : null;
+      } else {
+        dashboardLinkMode = dashboardLinkIntent(textForLog, Boolean(linked.isNewUser));
+      }
     }
     const turnTag = Math.random().toString(36).slice(2, 8);
-    const textForLog = typeof content === "string" ? content : "";
     const safeTextForLog = redactPhoneNumbers(textForLog);
     const preview = safeTextForLog.length > 100 ? safeTextForLog.slice(0, 100) + "…" : safeTextForLog;
     console.log(`[turn ${turnTag}] ← ${redactContactHandle(from_number)}: ${JSON.stringify(preview)}`);
@@ -405,7 +414,15 @@ export function createSendblueRouter(): express.Router {
     if (normalizedFrom && dashboardLinkMode) {
       const { url } = await issueDashboardMagicLink(normalizedFrom);
       await sendImessage(from_number, dashboardMagicMessage(url, dashboardLinkMode));
-      if (dashboardLinkMode === "command") return;
+      if (dashboardLinkMode === "command" || dashboardLinkMode === "welcome") return;
+    }
+
+    if (normalizedFrom && joinCodeResult && !joinCodeResult.ok) {
+      await sendImessage(
+        from_number,
+        "that join code expired. open Azraj again and send the fresh bracket code.",
+      );
+      return;
     }
 
     if (
