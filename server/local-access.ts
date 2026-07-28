@@ -138,6 +138,7 @@ export function isPublicServerRequest(request: RequestLike): boolean {
     (publicAuthPath === "/start" ||
       publicAuthPath === "/join/start" ||
       publicAuthPath === "/verify" ||
+      publicAuthPath === "/logout" ||
       publicAuthPath === "/magic/verify" ||
       publicAuthPath === "/dashboard" ||
       publicAuthPath === "/integrations" ||

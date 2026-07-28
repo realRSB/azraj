@@ -745,6 +745,15 @@ export function App() {
   }
 
   function signOut() {
+    // Revoke server-side too, otherwise the token stays valid for its full
+    // 30-day TTL after the browser forgets it. Fire-and-forget: a failed
+    // revoke must not trap the user in a signed-in UI.
+    const revoking = sessionToken;
+    if (revoking) {
+      void publicAuthPost("/logout", revoking).catch(() => {
+        /* best effort — local session is cleared regardless */
+      });
+    }
     setSessionToken(null);
     setConnectStep("join");
     setAuthNeedsThread(false);

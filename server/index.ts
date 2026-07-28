@@ -38,6 +38,7 @@ import { createStreakRouter } from "./streak-routes.js";
 import { startWeeklyLoop } from "./weekly/service.js";
 import { createWeeklyRouter } from "./weekly-routes.js";
 import { isPublicServerRequest, isTrustedLocalRequest } from "./local-access.js";
+import { applySecurityHeaders } from "./http-security.js";
 import { buildCorsOrigins } from "./cors-origins.js";
 
 function mountPublicWeb(app: express.Express) {
@@ -89,6 +90,14 @@ async function main() {
   }
 
   const app = express();
+  // Railway (and any other single reverse proxy) terminates TLS and forwards
+  // the client address in x-forwarded-for. express-rate-limit needs req.ip to
+  // be the real caller, otherwise every request buckets under the proxy.
+  // The local-access gate below is unaffected: it reads socket.remoteAddress
+  // and the forwarding headers directly rather than trusting req.ip.
+  app.set("trust proxy", 1);
+  // Before the access gate so 404s and static assets are covered too.
+  applySecurityHeaders(app);
   app.use((req, res, next) => {
     if (isPublicServerRequest(req) || isTrustedLocalRequest(req)) {
       next();
