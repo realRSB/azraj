@@ -137,6 +137,7 @@ export function isPublicServerRequest(request: RequestLike): boolean {
     method === "POST" &&
     (publicAuthPath === "/start" ||
       publicAuthPath === "/verify" ||
+      publicAuthPath === "/magic/verify" ||
       publicAuthPath === "/dashboard" ||
       publicAuthPath === "/integrations" ||
       publicAuthPath === "/timezone" ||

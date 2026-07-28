@@ -6,6 +6,11 @@ import { handleUserMessage } from "./interaction-agent.js";
 import { broadcast } from "./broadcast.js";
 import { validateImageHeader, MAX_IMAGE_BYTES, type ImageMediaType } from "./images/mime.js";
 import { redactContactHandle, redactPhoneNumbers } from "./privacy.js";
+import {
+  dashboardLinkIntent,
+  dashboardMagicMessage,
+  issueDashboardMagicLink,
+} from "./public-auth-magic.js";
 import { maybeHandleScriptedDemoReply } from "./scripted-demo-replies.js";
 import { verifySendblueWebhookSecret } from "./sendblue-webhook-auth.js";
 
@@ -376,11 +381,16 @@ export function createSendblueRouter(): express.Router {
 
     const normalizedFrom = normalizeE164(from_number);
     const conversationId = `sms:${normalizedFrom ?? from_number}`;
+    let dashboardLinkMode: "command" | "welcome" | null = null;
     if (normalizedFrom) {
-      await convex.mutation(api.publicUsers.linkInboundConversation, {
+      const linked = await convex.mutation(api.publicUsers.linkInboundConversation, {
         phoneE164: normalizedFrom,
         conversationId,
       });
+      dashboardLinkMode = dashboardLinkIntent(
+        typeof content === "string" ? content : "",
+        Boolean(linked.isNewUser),
+      );
     }
     const turnTag = Math.random().toString(36).slice(2, 8);
     const textForLog = typeof content === "string" ? content : "";
@@ -391,6 +401,12 @@ export function createSendblueRouter(): express.Router {
 
     broadcast("message_in", { conversationId, content, from_number, handle: message_handle });
     res.json({ ok: true });
+
+    if (normalizedFrom && dashboardLinkMode) {
+      const { url } = await issueDashboardMagicLink(normalizedFrom);
+      await sendImessage(from_number, dashboardMagicMessage(url, dashboardLinkMode));
+      if (dashboardLinkMode === "command") return;
+    }
 
     if (
       await maybeHandleScriptedDemoReply(

@@ -24,6 +24,7 @@ import {
   listToolsForToolkit,
   renameConnection,
 } from "./composio.js";
+import { dashboardMagicTokenHash } from "./public-auth-magic.js";
 
 const OTP_TTL_MS = 1000 * 60 * 10;
 
@@ -49,6 +50,10 @@ function createSessionToken() {
 
 function normalizeCode(value: unknown) {
   return typeof value === "string" ? value.replace(/\D/g, "").slice(0, 6) : "";
+}
+
+function normalizeMagicToken(value: unknown) {
+  return typeof value === "string" ? value.trim().slice(0, 256) : "";
 }
 
 function devCodePayload(code: string) {
@@ -363,6 +368,25 @@ export function createPublicAuthRouter(): express.Router {
     });
     if (!result.ok) {
       res.status(401).json({ error: result.reason });
+      return;
+    }
+    res.json(result);
+  });
+
+  router.post("/magic/verify", async (req, res) => {
+    const token = normalizeMagicToken(req.body?.token);
+    if (!token) {
+      res.status(400).json({ error: "dashboard link token required" });
+      return;
+    }
+
+    const sessionToken = createSessionToken();
+    const result = await convex.mutation(api.publicUsers.redeemDashboardMagicLink, {
+      tokenHash: dashboardMagicTokenHash(token),
+      sessionToken,
+    });
+    if (!result.ok) {
+      res.status(401).json({ error: "dashboard link expired. text Azraj for a fresh one." });
       return;
     }
     res.json(result);
