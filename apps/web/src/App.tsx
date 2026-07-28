@@ -923,7 +923,6 @@ function ConnectModal({
         <button className="connect-close" type="button" aria-label="Close" onClick={onClose}>
           x
         </button>
-        <p className="connect-brand">azraj</p>
         <h2 id="connect-title">
           {step === "connected" && "you're connected"}
           {step === "code" && "Enter Code"}
@@ -942,14 +941,6 @@ function ConnectModal({
 
         {step === "join" && (
           <div className="connect-form">
-            <div className={`text-first-card ${needsThread || busy ? "is-active" : ""}`}>
-              <span>{busy ? "creating secure code" : "new secure code"}</span>
-              <p>
-                Every signup gets a fresh bracket code. Azraj only unlocks the
-                dashboard for the phone number that sends it.
-              </p>
-            </div>
-
             <button
               className="connect-field"
               type="button"

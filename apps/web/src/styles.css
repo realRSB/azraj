@@ -343,20 +343,6 @@ button {
   font-weight: 900;
 }
 
-.connect-brand {
-  width: fit-content;
-  margin: 0 auto 0.7rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: rgba(7, 139, 255, 0.06);
-  padding: 0.46rem 0.7rem;
-  color: var(--blue);
-  font-size: 0.75rem;
-  font-weight: 950;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
 .connect-card h2 {
   margin: 0;
   color: var(--ink);
@@ -448,39 +434,6 @@ button {
   display: grid;
   gap: 0.9rem;
   text-align: left;
-}
-
-.text-first-card {
-  display: grid;
-  gap: 0.7rem;
-  border: 1px solid rgba(7, 139, 255, 0.16);
-  border-radius: 1rem;
-  background:
-    linear-gradient(135deg, rgba(7, 139, 255, 0.1), rgba(52, 211, 153, 0.08)),
-    rgba(248, 250, 252, 0.9);
-  padding: 0.95rem;
-  text-align: center;
-}
-
-.text-first-card.is-active {
-  border-color: rgba(7, 139, 255, 0.34);
-  box-shadow: 0 0 0 4px rgba(7, 139, 255, 0.08);
-}
-
-.text-first-card span {
-  color: var(--blue);
-  font-size: 0.78rem;
-  font-weight: 950;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.text-first-card p {
-  margin: 0;
-  color: rgba(30, 41, 59, 0.78);
-  font-size: 0.92rem;
-  font-weight: 700;
-  line-height: 1.4;
 }
 
 .connect-open-inline {
