@@ -40,11 +40,12 @@ describe("Azraj accountability coaching prompt", () => {
     expect(INTERACTION_SYSTEM).toContain("recurring morning, progress, night, or weekly check-ins");
   });
 
-  it("uses a casual gen-z texting voice", () => {
+  it("uses a casual, motivating gen-z voice", () => {
     expect(INTERACTION_SYSTEM).toContain("texting a friend under 25");
     expect(INTERACTION_SYSTEM).toContain("lowercase by default");
     expect(INTERACTION_SYSTEM).toContain("Slang is seasoning, not the meal");
     expect(INTERACTION_SYSTEM).toContain("Shorten things");
+    expect(INTERACTION_SYSTEM).toContain("Celebrate real progress briefly");
     expect(CODEX_USER_FACING_VOICE_OVERLAY).toContain("lowercase by default");
     expect(CODEX_USER_FACING_VOICE_OVERLAY).toContain("texting shorthand");
   });

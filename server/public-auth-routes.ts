@@ -25,6 +25,7 @@ import {
   listToolsForToolkit,
   renameConnection,
 } from "./composio.js";
+import { dashboardMagicTokenHash, issueJoinCode } from "./public-auth-magic.js";
 
 const OTP_TTL_MS = 1000 * 60 * 10;
 
@@ -50,6 +51,10 @@ function createSessionToken() {
 
 function normalizeCode(value: unknown) {
   return typeof value === "string" ? value.replace(/\D/g, "").slice(0, 6) : "";
+}
+
+function normalizeMagicToken(value: unknown) {
+  return typeof value === "string" ? value.trim().slice(0, 256) : "";
 }
 
 // Echoing the login code back in the HTTP response is a complete auth bypass
@@ -344,6 +349,16 @@ export function createPublicAuthRouter(): express.Router {
     }
   });
 
+  router.post("/join/start", async (_req, res) => {
+    try {
+      const result = await issueJoinCode();
+      res.json({ ok: true, ...result });
+    } catch (err) {
+      console.error("[public-auth] join code issue failed", err);
+      res.status(500).json({ error: "couldn't create a join code" });
+    }
+  });
+
   router.post("/start", startLimiter, async (req, res) => {
     const phoneE164 = normalizeE164(String(req.body?.phone ?? ""));
     if (!phoneE164 || !/^\+\d{10,15}$/.test(phoneE164)) {
@@ -373,7 +388,14 @@ export function createPublicAuthRouter(): express.Router {
     }
 
     const text = `azraj login code: ${code}. expires in 10 minutes.`;
-    await sendImessage(phoneE164, text);
+    const sent = await sendImessage(phoneE164, text);
+    if (!sent) {
+      res.status(502).json({
+        code: "otp_delivery_failed",
+        error: "couldn't send the one-time code. check the number and try again.",
+      });
+      return;
+    }
     console.log(`[public-auth] login code sent to ${redactContactHandle(phoneE164)}`);
     res.json({ ok: true, phoneE164, ...devCodePayload(code) });
   });
@@ -394,6 +416,25 @@ export function createPublicAuthRouter(): express.Router {
     });
     if (!result.ok) {
       res.status(401).json({ error: result.reason });
+      return;
+    }
+    res.json(result);
+  });
+
+  router.post("/magic/verify", async (req, res) => {
+    const token = normalizeMagicToken(req.body?.token);
+    if (!token) {
+      res.status(400).json({ error: "dashboard link token required" });
+      return;
+    }
+
+    const sessionToken = createSessionToken();
+    const result = await convex.mutation(api.publicUsers.redeemDashboardMagicLink, {
+      tokenHash: dashboardMagicTokenHash(token),
+      sessionToken,
+    });
+    if (!result.ok) {
+      res.status(401).json({ error: "dashboard link expired. text Azraj for a fresh one." });
       return;
     }
     res.json(result);

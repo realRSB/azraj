@@ -6,6 +6,13 @@ import { handleUserMessage } from "./interaction-agent.js";
 import { broadcast } from "./broadcast.js";
 import { validateImageHeader, MAX_IMAGE_BYTES, type ImageMediaType } from "./images/mime.js";
 import { redactContactHandle, redactPhoneNumbers } from "./privacy.js";
+import {
+  dashboardLinkIntent,
+  dashboardMagicMessage,
+  extractJoinCode,
+  issueDashboardMagicLink,
+  joinCodeHash,
+} from "./public-auth-magic.js";
 import { normalizeDashes } from "./text-style.js";
 import { maybeHandleScriptedDemoReply } from "./scripted-demo-replies.js";
 import { verifySendblueWebhookSecret } from "./sendblue-webhook-auth.js";
@@ -150,22 +157,23 @@ export function normalizeE164(n: string | undefined): string | undefined {
   return trimmed;
 }
 
-export async function sendImessage(toNumber: string, text: string): Promise<void> {
-  if (blockOutbound("message", toNumber)) return;
+export async function sendImessage(toNumber: string, text: string): Promise<boolean> {
+  if (blockOutbound("message", toNumber)) return false;
   const h = headers();
   if (!h) {
     console.warn("[sendblue] missing credentials — not sending");
-    return;
+    return false;
   }
   const from = normalizeE164(process.env.SENDBLUE_FROM_NUMBER);
   if (!from) {
     console.error(
       `[sendblue] SENDBLUE_FROM_NUMBER is not set. Run \`npm run sendblue:sync\` (pulls it from \`sendblue lines\`) or paste your provisioned number into .env.local, then restart \`npm run dev\`.`,
     );
-    return;
+    return false;
   }
   // Intentional privacy guard: Boop should not deliver phone numbers back over
   // iMessage, even if an agent includes one in its final reply.
+  let sentAll = true;
   const plain = redactPhoneNumbers(stripTells(text));
   for (const part of chunk(plain)) {
     const res = await fetch(`${API_BASE}/send-message`, {
@@ -174,6 +182,7 @@ export async function sendImessage(toNumber: string, text: string): Promise<void
       body: JSON.stringify({ number: toNumber, content: part, from_number: from }),
     });
     if (!res.ok) {
+      sentAll = false;
       const body = await res.text().catch(() => "");
       console.error(
         `[sendblue] send failed ${res.status}: ${redactPhoneNumbers(body).slice(0, 500)}`,
@@ -195,6 +204,7 @@ export async function sendImessage(toNumber: string, text: string): Promise<void
       console.log(`[sendblue] → sent ${part.length} chars to ${redactContactHandle(toNumber)}`);
     }
   }
+  return sentAll;
 }
 
 // Send an image (MMS) with an optional caption. `mediaUrl` must be publicly
@@ -381,14 +391,26 @@ export function createSendblueRouter(): express.Router {
 
     const normalizedFrom = normalizeE164(from_number);
     const conversationId = `sms:${normalizedFrom ?? from_number}`;
+    let dashboardLinkMode: "command" | "welcome" | null = null;
+    let joinCodeResult: { ok: boolean; reason?: string } | null = null;
+    const textForLog = typeof content === "string" ? content : "";
     if (normalizedFrom) {
-      await convex.mutation(api.publicUsers.linkInboundConversation, {
+      const linked = await convex.mutation(api.publicUsers.linkInboundConversation, {
         phoneE164: normalizedFrom,
         conversationId,
       });
+      const joinCode = extractJoinCode(textForLog);
+      if (joinCode) {
+        joinCodeResult = await convex.mutation(api.publicUsers.consumeJoinCode, {
+          phoneE164: normalizedFrom,
+          codeHash: joinCodeHash(joinCode),
+        });
+        dashboardLinkMode = joinCodeResult.ok ? "welcome" : null;
+      } else {
+        dashboardLinkMode = dashboardLinkIntent(textForLog, Boolean(linked.isNewUser));
+      }
     }
     const turnTag = Math.random().toString(36).slice(2, 8);
-    const textForLog = typeof content === "string" ? content : "";
     const safeTextForLog = redactPhoneNumbers(textForLog);
     const preview = safeTextForLog.length > 100 ? safeTextForLog.slice(0, 100) + "…" : safeTextForLog;
     console.log(`[turn ${turnTag}] ← ${redactContactHandle(from_number)}: ${JSON.stringify(preview)}`);
@@ -396,6 +418,20 @@ export function createSendblueRouter(): express.Router {
 
     broadcast("message_in", { conversationId, content, from_number, handle: message_handle });
     res.json({ ok: true });
+
+    if (normalizedFrom && dashboardLinkMode) {
+      const { url } = await issueDashboardMagicLink(normalizedFrom);
+      await sendImessage(from_number, dashboardMagicMessage(url, dashboardLinkMode));
+      if (dashboardLinkMode === "command" || dashboardLinkMode === "welcome") return;
+    }
+
+    if (normalizedFrom && joinCodeResult && !joinCodeResult.ok) {
+      await sendImessage(
+        from_number,
+        "that join code expired. open Azraj again and send the fresh bracket code.",
+      );
+      return;
+    }
 
     if (
       await maybeHandleScriptedDemoReply(

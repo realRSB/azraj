@@ -47,7 +47,7 @@ const AZRAJ_NUMBER = import.meta.env.VITE_AZRAJ_PHONE_NUMBER || "+17862139361";
 const SESSION_KEY = "azraj.publicSessionToken";
 
 type Page = "home" | "dashboard";
-type ConnectStep = "phone" | "code" | "connected";
+type ConnectStep = "join" | "signin" | "code" | "connected";
 type DashboardView =
   | "dashboard"
   | "messages"
@@ -459,18 +459,42 @@ async function publicAuthPost<T>(
   return data as T;
 }
 
+async function redeemDashboardLink(token: string) {
+  const res = await fetch("/api/public-auth/magic/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  const data = await parseJsonResponse(res);
+  if (!res.ok) throw new Error(String(data.error ?? "dashboard link expired"));
+  return data as { sessionToken: string };
+}
+
+async function createJoinChallenge() {
+  const res = await fetch("/api/public-auth/join/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  const data = await parseJsonResponse(res);
+  if (!res.ok) throw new Error(String(data.error ?? "couldn't create join code"));
+  return data as { code: string; message: string };
+}
+
 export function App() {
   const [page, setPage] = useState<Page>(() =>
     window.location.pathname === "/dashboard" ? "dashboard" : "home",
   );
   const [sessionToken, setSessionToken] = useState<string | null>(getStoredSession);
   const [connectOpen, setConnectOpen] = useState(false);
-  const [connectStep, setConnectStep] = useState<ConnectStep>(sessionToken ? "connected" : "phone");
+  const [connectStep, setConnectStep] = useState<ConnectStep>(sessionToken ? "connected" : "join");
   const [phone, setPhone] = useState("");
   const [verifiedPhone, setVerifiedPhone] = useState("");
   const [code, setCode] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
+  const [joinMessageText, setJoinMessageText] = useState("I'm ready to join Azraj [...]!");
+  const [otpCountdown, setOtpCountdown] = useState(0);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authNeedsThread, setAuthNeedsThread] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [copied, setCopied] = useState<"number" | "message" | null>(null);
   const [activeStep, setActiveStep] = useState(0);
@@ -541,9 +565,76 @@ export function App() {
   }, [connectOpen]);
 
   useEffect(() => {
+    if (!connectOpen || connectStep !== "join" || sessionToken) return;
+
+    let cancelled = false;
+    setAuthBusy(true);
+    setAuthError(null);
+    createJoinChallenge()
+      .then((result) => {
+        if (!cancelled) setJoinMessageText(result.message);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setJoinMessageText("I'm ready to join Azraj [...]!");
+          setAuthError(err instanceof Error ? err.message : String(err));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAuthBusy(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connectOpen, connectStep, sessionToken]);
+
+  useEffect(() => {
     setStoredSession(sessionToken);
     if (sessionToken) setConnectStep("connected");
   }, [sessionToken]);
+
+  useEffect(() => {
+    if (connectStep !== "code" || otpCountdown <= 0) return;
+    const timer = window.setTimeout(() => setOtpCountdown((value) => Math.max(0, value - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [connectStep, otpCountdown]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const magicToken = url.searchParams.get("login");
+    if (!magicToken) return;
+
+    let cancelled = false;
+    setPage("dashboard");
+    setDashboard(undefined);
+    setAuthError(null);
+    setAuthBusy(true);
+
+    redeemDashboardLink(magicToken)
+      .then((result) => {
+        if (cancelled) return;
+        setSessionToken(result.sessionToken);
+        setConnectStep("connected");
+        setConnectOpen(false);
+        window.history.replaceState(null, "", "/dashboard");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDashboard(null);
+        setConnectStep("join");
+        setConnectOpen(true);
+        setAuthError(err instanceof Error ? err.message : String(err));
+        window.history.replaceState(null, "", "/dashboard");
+      })
+      .finally(() => {
+        if (!cancelled) setAuthBusy(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!sessionToken) {
@@ -592,9 +683,9 @@ export function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  const firstText = encodeURIComponent("yo azraj, help me plan today.");
-  const starterMessage = "yo azraj, help me plan today.";
-  const smsHref = `sms:${smsNumber(AZRAJ_NUMBER)}?&body=${firstText}`;
+  const starterMessage = joinMessageText;
+  const joinText = encodeURIComponent(starterMessage);
+  const joinSmsHref = `sms:${smsNumber(AZRAJ_NUMBER)}?&body=${joinText}`;
   const currentStory = storySteps[activeStep] ?? storySteps[0];
 
   async function copyText(kind: "number" | "message", value: string) {
@@ -607,6 +698,7 @@ export function App() {
     event.preventDefault();
     setAuthBusy(true);
     setAuthError(null);
+    setAuthNeedsThread(false);
     setDevCode(null);
     try {
       const res = await fetch("/api/public-auth/start", {
@@ -615,9 +707,13 @@ export function App() {
         body: JSON.stringify({ phone }),
       });
       const data = await parseJsonResponse(res);
-      if (!res.ok) throw new Error(String(data.error ?? "couldn't send code"));
+      if (!res.ok) {
+        setAuthNeedsThread(data.code === "otp_delivery_failed");
+        throw new Error(String(data.error ?? "couldn't send code"));
+      }
       setVerifiedPhone(String(data.phoneE164 ?? ""));
       setDevCode(typeof data.devCode === "string" ? data.devCode : null);
+      setOtpCountdown(60);
       setConnectStep("code");
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : String(err));
@@ -659,10 +755,21 @@ export function App() {
       });
     }
     setSessionToken(null);
-    setConnectStep("phone");
+    setConnectStep("join");
+    setAuthNeedsThread(false);
     setVerifiedPhone("");
     setPhone("");
     if (page === "dashboard") navigate("home");
+  }
+
+  function openConnect(step: "join" | "signin") {
+    setAuthError(null);
+    setAuthNeedsThread(false);
+    setDevCode(null);
+    setCode("");
+    setOtpCountdown(0);
+    if (!sessionToken) setConnectStep(step);
+    setConnectOpen(true);
   }
 
   return (
@@ -692,10 +799,10 @@ export function App() {
               </>
             ) : (
               <>
-                <button type="button" onClick={() => setConnectOpen(true)}>
+                <button type="button" onClick={() => openConnect("signin")}>
                   sign in
                 </button>
-                <button type="button" className="nav-auth-primary" onClick={() => setConnectOpen(true)}>
+                <button type="button" className="nav-auth-primary" onClick={() => openConnect("join")}>
                   sign up
                 </button>
               </>
@@ -708,12 +815,12 @@ export function App() {
         <UserDashboard
           dashboard={dashboard}
           sessionToken={sessionToken}
-          onConnect={() => setConnectOpen(true)}
+          onConnect={() => openConnect("join")}
           onSignOut={signOut}
         />
       ) : (
         <>
-          <LandingHero onConnect={() => setConnectOpen(true)} />
+          <LandingHero onConnect={() => openConnect("join")} />
           <StorySection currentStory={currentStory} activeStep={activeStep} />
         </>
       )}
@@ -724,12 +831,13 @@ export function App() {
           phone={phone}
           verifiedPhone={verifiedPhone}
           code={code}
-          devCode={devCode}
+          otpCountdown={otpCountdown}
           busy={authBusy}
           error={authError}
+          needsThread={authNeedsThread}
           copied={copied}
           starterMessage={starterMessage}
-          smsHref={smsHref}
+          smsHref={joinSmsHref}
           onClose={() => setConnectOpen(false)}
           onPhoneChange={setPhone}
           onCodeChange={setCode}
@@ -776,7 +884,7 @@ function LandingHero({ onConnect }: { onConnect: () => void }) {
           <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
           Start Connecting
         </button>
-        <p>verify your phone. text azraj. watch your dashboard fill up.</p>
+        <p>text azraj. get your dashboard link. watch your data fill up.</p>
       </div>
     </section>
   );
@@ -787,9 +895,10 @@ function ConnectModal({
   phone,
   verifiedPhone,
   code,
-  devCode,
+  otpCountdown,
   busy,
   error,
+  needsThread,
   copied,
   starterMessage,
   smsHref,
@@ -805,9 +914,10 @@ function ConnectModal({
   phone: string;
   verifiedPhone: string;
   code: string;
-  devCode: string | null;
+  otpCountdown: number;
   busy: boolean;
   error: string | null;
+  needsThread: boolean;
   copied: "number" | "message" | null;
   starterMessage: string;
   smsHref: string;
@@ -827,24 +937,60 @@ function ConnectModal({
         aria-label="Close connection card"
         onClick={onClose}
       />
-      <div className="connect-card" role="dialog" aria-modal="true" aria-labelledby="connect-title">
+      <div
+        className={`connect-card ${step === "code" ? "is-code" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="connect-title"
+      >
         <button className="connect-close" type="button" aria-label="Close" onClick={onClose}>
           x
         </button>
-        <p className="connect-brand">azraj</p>
         <h2 id="connect-title">
-          {step === "connected" ? "you’re connected" : "Welcome to Azraj"}
+          {step === "connected" && "you're connected"}
+          {step === "code" && "Enter Code"}
+          {step === "signin" && "Sign in to Azraj"}
+          {step === "join" && "Welcome to Azraj"}
         </h2>
         <p className="connect-copy">
-          {step === "phone" &&
-            "verify your number first so azraj can connect your texts to your dashboard."}
+          {step === "join" &&
+            "Send this exact message below to get started or simply press the Open iMessage button"}
+          {step === "signin" && "Enter your phone number and we'll send a 6-digit login code."}
           {step === "code" &&
-            `enter the 6-digit code sent to ${maskPhone(verifiedPhone || phone)}.`}
+            `We sent a 6-digit code to ${maskPhone(verifiedPhone || phone)}`}
           {step === "connected" &&
             "send this message to start your accountability thread, then open your dashboard anytime."}
         </p>
 
-        {step === "phone" && (
+        {step === "join" && (
+          <div className="connect-form">
+            <button
+              className="connect-field"
+              type="button"
+              onClick={() => onCopy("number", AZRAJ_NUMBER)}
+            >
+              <span>Your Azraj number</span>
+              <strong>{AZRAJ_NUMBER}</strong>
+              <small>{copied === "number" ? "copied" : "tap to copy"}</small>
+            </button>
+
+            <button
+              className="connect-field connect-message"
+              type="button"
+              onClick={() => onCopy("message", starterMessage)}
+            >
+              <strong>{starterMessage}</strong>
+              <small>{copied === "message" ? "copied" : "tap to copy message"}</small>
+            </button>
+
+            <a className="connect-open" href={smsHref}>
+              <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
+              Open iMessage
+            </a>
+          </div>
+        )}
+
+        {step === "signin" && (
           <form className="connect-form" onSubmit={onStart}>
             <label>
               <span>phone number</span>
@@ -865,18 +1011,22 @@ function ConnectModal({
         {step === "code" && (
           <form className="connect-form" onSubmit={onVerify}>
             <label>
-              <span>verification code</span>
+              <span className="sr-only">verification code</span>
               <input
+                className="connect-code-input"
                 value={code}
                 onChange={(event) => onCodeChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="123456"
+                placeholder="------"
                 inputMode="numeric"
                 autoComplete="one-time-code"
+                autoFocus
               />
             </label>
-            {devCode && <p className="connect-dev-code">dev code: {devCode}</p>}
-            <button className="connect-submit" type="submit" disabled={busy}>
-              {busy ? "checking..." : "verify and connect"}
+            <p className="connect-resend">
+              {otpCountdown > 0 ? `Resend code in ${otpCountdown}s` : "Resend code"}
+            </p>
+            <button className="connect-submit connect-verify" type="submit" disabled={busy || code.length !== 6}>
+              {busy ? "checking..." : "Verify"}
             </button>
           </form>
         )}
@@ -913,10 +1063,16 @@ function ConnectModal({
           </>
         )}
 
-        {error && <p className="connect-error">{error}</p>}
-        <p className="connect-help">
-          Didn&apos;t open? Copy the message, then send it to the Azraj number above.
-        </p>
+        {error && <p className={`connect-error ${needsThread ? "is-soft" : ""}`}>{error}</p>}
+        {step !== "code" && (
+          <p className="connect-help">
+            {step === "join" &&
+              "Didn't open? Tap to copy the message, then send it to the Azraj number above."}
+            {step === "signin" && "We send a one-time login code to this phone number."}
+            {step === "connected" &&
+              "Didn't open? Tap to copy the message, then send it to the Azraj number above."}
+          </p>
+        )}
       </div>
     </section>
   );
@@ -938,8 +1094,8 @@ function UserDashboard({
       <section className="public-dashboard empty-dashboard">
         <div className="dashboard-empty-card">
           <p>dashboard</p>
-          <h1>verify your number first</h1>
-          <span>azraj needs your phone login before it can show texts, memory, and costs.</span>
+          <h1>text azraj first</h1>
+          <span>send one iMessage and Azraj will reply with your private dashboard link.</span>
           <button type="button" className="start-button" onClick={onConnect}>
             <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
             Start Connecting
