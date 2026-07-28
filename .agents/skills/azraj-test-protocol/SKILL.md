@@ -48,6 +48,60 @@ Expected:
 
 For iMessage tests, Sendblue must point to the current ngrok URL. If it does not, run the webhook registration command suggested by the check script or restart `npm run dev` with auto-sync enabled.
 
+### Local Sendblue Isolation
+
+Local iMessage testing should use a dedicated dev Sendblue account/key/line, separate from Railway production.
+
+Before changing app logic, verify `.env.local`:
+
+```bash
+cd /Users/bedir/Developer/personal/azraj
+rg -n "SENDBLUE_|PUBLIC_URL|PUBLIC_WEB_URL|BOOP_ALLOW_OUTBOUND_SMS" .env.local
+```
+
+Expected local values:
+
+- `SENDBLUE_API_KEY` and `SENDBLUE_API_SECRET` are the dev Sendblue account credentials, not the production/Railway credentials.
+- `SENDBLUE_FROM_NUMBER` is the Sendblue-provisioned dev line people text TO, not Rajveer's personal phone or the phone being used to test.
+- `PUBLIC_URL=http://localhost:3456` unless intentionally using a static local tunnel.
+- `PUBLIC_WEB_URL=http://localhost:5174` for the public web app.
+- `SENDBLUE_AUTO_WEBHOOK=true` for automatic ngrok registration.
+- `BOOP_ALLOW_OUTBOUND_SMS=true` only when the user explicitly wants local OTP/outbound sends to real phones.
+
+If the user gives new Sendblue credentials or changes any Sendblue env var:
+
+1. Update only local `.env.local`; do not touch Railway/prod env.
+2. Restart `npm run dev`; a running server does not pick up changed env secrets.
+3. Let `npm run dev` auto-register the new ngrok URL, or run:
+
+```bash
+npm run sendblue:webhook -- <current-ngrok-url>/sendblue/webhook
+```
+
+4. Confirm:
+
+```bash
+npm run sendblue:webhook:check
+```
+
+If outbound sends fail with `Cannot send messages to self`, `missing required parameter: from_number`, or `This phone number is not defined`, suspect `SENDBLUE_FROM_NUMBER` first. Ask for or obtain the actual dev Sendblue line using `sendblue lines`, then update `.env.local` and restart.
+
+### Public Auth Locally
+
+Test signup and sign-in as two different flows:
+
+- Start Connecting / signup is inbound-first:
+  - Open `http://localhost:5174`.
+  - Click Start Connecting or Sign up.
+  - Send the exact bracketed iMessage join code shown in the card.
+  - Sendblue must point to the current ngrok URL.
+  - If the dashboard link Azraj sends uses `localhost`, open it on the Mac running the dev server, not on the phone.
+- Sign in is outbound OTP:
+  - The server sends a one-time code to the phone number entered in the sign-in card.
+  - Local outbound texting is blocked unless `.env.local` has `BOOP_ALLOW_OUTBOUND_SMS=true`.
+  - Restart `npm run dev` after changing `BOOP_ALLOW_OUTBOUND_SMS`.
+  - Without that opt-in, `/public-auth/start` returns `otp_delivery_failed` before the request reaches Sendblue.
+
 ## Production Checklist
 
 Use this checklist for live testing:
