@@ -49,13 +49,32 @@ describe("sendImessage", () => {
     const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await sendImessage(recipient, `Call ${leakedPhone}`);
+    const sent = await sendImessage(recipient, `Call ${leakedPhone}`);
 
+    expect(sent).toBe(true);
     expect(fetchMock).toHaveBeenCalledOnce();
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toMatchObject({
       number: recipient,
       content: "Call [phone number hidden]",
     });
+  });
+
+  it("reports send failure when Sendblue rejects the request", async () => {
+    process.env.SENDBLUE_API_KEY = "test-key";
+    process.env.SENDBLUE_API_SECRET = "test-secret";
+    process.env.SENDBLUE_FROM_NUMBER = ["+", "1", "555", "000", "0100"].join("");
+    process.env.BOOP_ALLOW_OUTBOUND_SMS = "true";
+    const recipient = ["+", "1", "555", "000", "0101"].join("");
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify({ status: "ERROR" }), { status: 400 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const sent = await sendImessage(recipient, "hello");
+
+    expect(sent).toBe(false);
+    expect(fetchMock).toHaveBeenCalledOnce();
   });
 });

@@ -73,7 +73,7 @@ async function demoModeEnabled(): Promise<boolean> {
 }
 
 type ScriptedDemoReplyDeps = {
-  sendImessage: (toNumber: string, text: string) => Promise<void>;
+  sendImessage: (toNumber: string, text: string) => Promise<boolean | void>;
   sendTypingIndicator: (toNumber: string) => Promise<void>;
 };
 

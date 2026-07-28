@@ -334,7 +334,14 @@ export function createPublicAuthRouter(): express.Router {
     });
 
     const text = `azraj login code: ${code}. expires in 10 minutes.`;
-    await sendImessage(phoneE164, text);
+    const sent = await sendImessage(phoneE164, text);
+    if (!sent) {
+      res.status(502).json({
+        error:
+          "couldn't send the login code. text Azraj first, then try again, or contact Rajveer if it still fails.",
+      });
+      return;
+    }
     console.log(`[public-auth] login code sent to ${redactContactHandle(phoneE164)}`);
     res.json({ ok: true, phoneE164, ...devCodePayload(code) });
   });

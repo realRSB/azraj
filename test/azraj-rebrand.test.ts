@@ -41,9 +41,9 @@ describe("Azraj accountability coaching prompt", () => {
   });
 
   it("uses a casual, motivating gen-z voice", () => {
-    expect(INTERACTION_SYSTEM).toContain("mostly lowercase");
-    expect(INTERACTION_SYSTEM).toContain("a little slang");
-    expect(INTERACTION_SYSTEM).toContain("Hype the user up");
+    expect(INTERACTION_SYSTEM).toContain("lowercase by default");
+    expect(INTERACTION_SYSTEM).toContain("Slang is seasoning");
+    expect(INTERACTION_SYSTEM).toContain("Celebrate real progress briefly");
     expect(CODEX_USER_FACING_VOICE_OVERLAY).toContain("lowercase by default");
     expect(CODEX_USER_FACING_VOICE_OVERLAY).toContain("Use slang sparingly");
   });

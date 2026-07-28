@@ -142,23 +142,24 @@ export function normalizeE164(n: string | undefined): string | undefined {
   return trimmed;
 }
 
-export async function sendImessage(toNumber: string, text: string): Promise<void> {
-  if (blockOutbound("message", toNumber)) return;
+export async function sendImessage(toNumber: string, text: string): Promise<boolean> {
+  if (blockOutbound("message", toNumber)) return false;
   const h = headers();
   if (!h) {
     console.warn("[sendblue] missing credentials — not sending");
-    return;
+    return false;
   }
   const from = normalizeE164(process.env.SENDBLUE_FROM_NUMBER);
   if (!from) {
     console.error(
       `[sendblue] SENDBLUE_FROM_NUMBER is not set. Run \`npm run sendblue:sync\` (pulls it from \`sendblue lines\`) or paste your provisioned number into .env.local, then restart \`npm run dev\`.`,
     );
-    return;
+    return false;
   }
   // Intentional privacy guard: Boop should not deliver phone numbers back over
   // iMessage, even if an agent includes one in its final reply.
   const plain = redactPhoneNumbers(stripMarkdown(text));
+  let sentAll = true;
   for (const part of chunk(plain)) {
     const res = await fetch(`${API_BASE}/send-message`, {
       method: "POST",
@@ -166,6 +167,7 @@ export async function sendImessage(toNumber: string, text: string): Promise<void
       body: JSON.stringify({ number: toNumber, content: part, from_number: from }),
     });
     if (!res.ok) {
+      sentAll = false;
       const body = await res.text().catch(() => "");
       console.error(
         `[sendblue] send failed ${res.status}: ${redactPhoneNumbers(body).slice(0, 500)}`,
@@ -187,6 +189,7 @@ export async function sendImessage(toNumber: string, text: string): Promise<void
       console.log(`[sendblue] → sent ${part.length} chars to ${redactContactHandle(toNumber)}`);
     }
   }
+  return sentAll;
 }
 
 // Send an image (MMS) with an optional caption. `mediaUrl` must be publicly
