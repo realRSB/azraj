@@ -41,11 +41,37 @@ describe("Azraj accountability coaching prompt", () => {
   });
 
   it("uses a casual, motivating gen-z voice", () => {
+    expect(INTERACTION_SYSTEM).toContain("texting a friend under 25");
     expect(INTERACTION_SYSTEM).toContain("lowercase by default");
-    expect(INTERACTION_SYSTEM).toContain("Slang is seasoning");
+    expect(INTERACTION_SYSTEM).toContain("Slang is seasoning, not the meal");
+    expect(INTERACTION_SYSTEM).toContain("Shorten things");
     expect(INTERACTION_SYSTEM).toContain("Celebrate real progress briefly");
     expect(CODEX_USER_FACING_VOICE_OVERLAY).toContain("lowercase by default");
-    expect(CODEX_USER_FACING_VOICE_OVERLAY).toContain("Use slang sparingly");
+    expect(CODEX_USER_FACING_VOICE_OVERLAY).toContain("texting shorthand");
+  });
+
+  // Both voice surfaces have to agree. The dispatcher prompt and the Codex
+  // overlay are edited in different files months apart, and the failure mode is
+  // silent: Azraj sounds like a friend on Claude and like a coach app on Codex.
+  it("keeps the same mechanical rules on both runtimes", () => {
+    for (const prompt of [INTERACTION_SYSTEM, CODEX_USER_FACING_VOICE_OVERLAY]) {
+      expect(prompt).toContain("markdown");
+      expect(prompt).toContain("em-dash");
+      expect(prompt).toMatch(/💀|😭/);
+
+      // 💪 is the single most bot-coded emoji, so both prompts must ban it
+      // rather than merely mention it.
+      const muscleLine = prompt.split("\n").find((l) => l.includes("💪"));
+      expect(muscleLine).toBeDefined();
+      expect(muscleLine!.toLowerCase()).toMatch(/never|no /);
+    }
+  });
+
+  it("adapts per user and drops the act when things get heavy", () => {
+    expect(INTERACTION_SYSTEM).toContain("{{VOICE_PROFILE}}");
+    expect(INTERACTION_SYSTEM).toContain("{{VOICE_EXAMPLES}}");
+    expect(INTERACTION_SYSTEM).toContain("Read the room");
+    expect(CODEX_USER_FACING_VOICE_OVERLAY).toContain("venting");
   });
 });
 

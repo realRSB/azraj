@@ -13,6 +13,7 @@ import {
   issueDashboardMagicLink,
   joinCodeHash,
 } from "./public-auth-magic.js";
+import { normalizeDashes } from "./text-style.js";
 import { maybeHandleScriptedDemoReply } from "./scripted-demo-replies.js";
 import { verifySendblueWebhookSecret } from "./sendblue-webhook-auth.js";
 
@@ -43,6 +44,13 @@ function stripMarkdown(text: string): string {
     .replace(/^#+\s+/gm, "")
     .replace(/\[(.+?)\]\((.+?)\)/g, "$1 ($2)")
     .trim();
+}
+
+// Dispatcher replies are already cleaned at production time, but this path also
+// carries streak cards, automation notices, and proactive pings that never go
+// through it — so normalize here too rather than assuming a clean caller.
+function stripTells(text: string): string {
+  return normalizeDashes(stripMarkdown(text));
 }
 
 function chunk(text: string, size = MAX_CHUNK): string[] {
@@ -165,8 +173,8 @@ export async function sendImessage(toNumber: string, text: string): Promise<bool
   }
   // Intentional privacy guard: Boop should not deliver phone numbers back over
   // iMessage, even if an agent includes one in its final reply.
-  const plain = redactPhoneNumbers(stripMarkdown(text));
   let sentAll = true;
+  const plain = redactPhoneNumbers(stripTells(text));
   for (const part of chunk(plain)) {
     const res = await fetch(`${API_BASE}/send-message`, {
       method: "POST",
@@ -218,7 +226,7 @@ export async function sendMms(
     console.error("[sendblue] SENDBLUE_FROM_NUMBER is not set — cannot send MMS");
     return false;
   }
-  const content = caption ? redactPhoneNumbers(stripMarkdown(caption)) : "";
+  const content = caption ? redactPhoneNumbers(stripTells(caption)) : "";
   const res = await fetch(`${API_BASE}/send-message`, {
     method: "POST",
     headers: h,
