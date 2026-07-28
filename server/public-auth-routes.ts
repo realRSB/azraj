@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import express from "express";
+import rateLimit from "express-rate-limit";
 import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { normalizeE164, sendImessage } from "./sendblue.js";
@@ -51,9 +52,33 @@ function normalizeCode(value: unknown) {
   return typeof value === "string" ? value.replace(/\D/g, "").slice(0, 6) : "";
 }
 
-function devCodePayload(code: string) {
-  return process.env.NODE_ENV === "production" ? {} : { devCode: code };
+// Echoing the login code back in the HTTP response is a complete auth bypass
+// for anyone who can POST a phone number, so it fails closed: an explicit
+// opt-in is required rather than inferring safety from the absence of
+// NODE_ENV=production (which no deploy config here actually guarantees).
+export function devCodePayload(code: string) {
+  return process.env.BOOP_DEV_OTP_ECHO === "true" ? { devCode: code } : {};
 }
+
+// Outer wall for the two unauthenticated endpoints. /start costs real money on
+// every call (it sends an iMessage); /verify guards account access. The
+// per-phone throttle in convex/publicUsers.ts is the inner wall — these IP
+// limits only blunt single-source floods.
+const startLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "too many login codes requested — try again later" },
+});
+
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "too many attempts — try again later" },
+});
 
 function sessionTokenFromBody(body: unknown) {
   return body && typeof body === "object" && "sessionToken" in body
@@ -319,7 +344,7 @@ export function createPublicAuthRouter(): express.Router {
     }
   });
 
-  router.post("/start", async (req, res) => {
+  router.post("/start", startLimiter, async (req, res) => {
     const phoneE164 = normalizeE164(String(req.body?.phone ?? ""));
     if (!phoneE164 || !/^\+\d{10,15}$/.test(phoneE164)) {
       res.status(400).json({ error: "enter a valid phone number" });
@@ -327,11 +352,25 @@ export function createPublicAuthRouter(): express.Router {
     }
 
     const code = createCode();
-    await convex.mutation(api.publicUsers.issuePhoneOtp, {
+    const issued = await convex.mutation(api.publicUsers.issuePhoneOtp, {
       phoneE164,
       codeHash: codeHash(phoneE164, code),
       expiresAt: Date.now() + OTP_TTL_MS,
     });
+    if (!issued.ok) {
+      // Nothing is sent and no code is stored, so the previously issued code
+      // stays valid for its full TTL.
+      const retryAfterSec = Math.max(1, Math.ceil(issued.retryAfterMs / 1000));
+      res.setHeader("Retry-After", String(retryAfterSec));
+      res.status(429).json({
+        error:
+          issued.reason === "cooldown"
+            ? "a code was just sent — wait a moment before requesting another"
+            : "too many codes requested for that number — try again later",
+        retryAfterSec,
+      });
+      return;
+    }
 
     const text = `azraj login code: ${code}. expires in 10 minutes.`;
     await sendImessage(phoneE164, text);
@@ -339,7 +378,7 @@ export function createPublicAuthRouter(): express.Router {
     res.json({ ok: true, phoneE164, ...devCodePayload(code) });
   });
 
-  router.post("/verify", async (req, res) => {
+  router.post("/verify", verifyLimiter, async (req, res) => {
     const phoneE164 = normalizeE164(String(req.body?.phone ?? ""));
     const code = normalizeCode(req.body?.code);
     if (!phoneE164 || !/^\+\d{10,15}$/.test(phoneE164) || code.length !== 6) {
@@ -358,6 +397,22 @@ export function createPublicAuthRouter(): express.Router {
       return;
     }
     res.json(result);
+  });
+
+  // Server-side session revocation. Without this a leaked token stays valid for
+  // the full 30-day TTL with no way to kill it — "sign out" only cleared the
+  // browser's copy. Always answers ok so the endpoint can't be used to probe
+  // which tokens exist.
+  router.post("/logout", async (req, res) => {
+    const sessionToken = sessionTokenFromBody(req.body);
+    if (sessionToken) {
+      try {
+        await convex.mutation(api.publicUsers.logout, { sessionToken });
+      } catch (err) {
+        console.error("[public-auth] logout failed", err);
+      }
+    }
+    res.json({ ok: true });
   });
 
   return router;

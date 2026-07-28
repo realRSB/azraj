@@ -4,6 +4,14 @@ import type { Doc, Id } from "./_generated/dataModel";
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const DASHBOARD_SCAN_LIMIT = 5000;
+// Every issued OTP sends a real iMessage to whatever number was submitted, so
+// this throttle is what stops an unauthenticated caller from using /start to
+// bomb a third party's phone (and run up the Sendblue bill). It is keyed on the
+// phone number rather than the caller's IP on purpose — the victim is the phone
+// number, and an attacker rotating IPs must not get a fresh budget per hop.
+const OTP_MIN_INTERVAL_MS = 1000 * 60;
+const OTP_MAX_PER_HOUR = 5;
+const OTP_WINDOW_MS = 1000 * 60 * 60;
 
 type Ctx = QueryCtx | MutationCtx;
 type AccountabilityPlanForDashboard = Doc<"dailyPlans"> & {
@@ -76,24 +84,46 @@ export const issuePhoneOtp = mutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    await ensureUser(ctx, args.phoneE164);
     const existingRows = await ctx.db
       .query("phoneOtps")
       .withIndex("by_phone", (q) => q.eq("phoneE164", args.phoneE164))
       .order("desc")
-      .take(10);
+      .take(20);
+
+    // Throttle before ensureUser(), so unauthenticated spam can't grow the
+    // users table either.
+    const newest = existingRows[0];
+    if (newest && now - newest.createdAt < OTP_MIN_INTERVAL_MS) {
+      return {
+        ok: false as const,
+        reason: "cooldown" as const,
+        retryAfterMs: OTP_MIN_INTERVAL_MS - (now - newest.createdAt),
+      };
+    }
+    const withinWindow = existingRows.filter((row) => now - row.createdAt < OTP_WINDOW_MS);
+    if (withinWindow.length >= OTP_MAX_PER_HOUR) {
+      const oldestInWindow = withinWindow[withinWindow.length - 1];
+      return {
+        ok: false as const,
+        reason: "hourly-limit" as const,
+        retryAfterMs: OTP_WINDOW_MS - (now - oldestInWindow.createdAt),
+      };
+    }
+
+    await ensureUser(ctx, args.phoneE164);
     for (const row of existingRows) {
       if (!row.consumedAt) {
         await ctx.db.patch(row._id, { consumedAt: now });
       }
     }
-    return await ctx.db.insert("phoneOtps", {
+    const otpId = await ctx.db.insert("phoneOtps", {
       phoneE164: args.phoneE164,
       codeHash: args.codeHash,
       attempts: 0,
       createdAt: now,
       expiresAt: args.expiresAt,
     });
+    return { ok: true as const, otpId };
   },
 });
 
