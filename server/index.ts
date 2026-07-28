@@ -23,7 +23,7 @@ import { createMemoryRouter } from "./memory-routes.js";
 import { createAppleRouter } from "./apple-routes.js";
 import { closeLocalBrowser } from "./browser/launcher.js";
 import { createChangelogRouter } from "./changelog.js";
-import { createPublicAuthRouter } from "./public-auth-routes.js";
+import { assertPublicAuthSecretConfigured, createPublicAuthRouter } from "./public-auth-routes.js";
 import {
   getRuntimeConfig,
   resolveModelInput,
@@ -38,6 +38,7 @@ import { createStreakRouter } from "./streak-routes.js";
 import { startWeeklyLoop } from "./weekly/service.js";
 import { createWeeklyRouter } from "./weekly-routes.js";
 import { isPublicServerRequest, isTrustedLocalRequest } from "./local-access.js";
+import { buildCorsOrigins } from "./cors-origins.js";
 
 function mountPublicWeb(app: express.Express) {
   if (process.env.BOOP_SERVE_WEB === "false") return false;
@@ -54,6 +55,11 @@ function mountPublicWeb(app: express.Express) {
 }
 
 async function main() {
+  // Fail fast, before any other startup work, if this is a real deployment
+  // missing PUBLIC_AUTH_SECRET — better to never come up than to come up and
+  // silently hash phone-login OTPs with a weak fallback key.
+  assertPublicAuthSecretConfigured();
+
   await loadIntegrations();
   startCleanupLoop();
   startAutomationLoop();
@@ -90,7 +96,7 @@ async function main() {
     }
     res.status(404).json({ error: "not found" });
   });
-  app.use(cors());
+  app.use(cors({ origin: buildCorsOrigins(process.env) }));
   // Composio webhook receiver must read raw bytes for HMAC verification, so
   // its body parser is mounted BEFORE the global express.json. Without this
   // ordering the JSON parser consumes the stream first and the raw buffer

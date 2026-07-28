@@ -28,15 +28,50 @@ import { dashboardMagicTokenHash, issueJoinCode } from "./public-auth-magic.js";
 
 const OTP_TTL_MS = 1000 * 60 * 10;
 
+// "Real deployment" reuses the exact convention already used for the
+// outbound SMS gate in server/sendblue.ts: PUBLIC_URL set to a non-localhost
+// value.
+function isRealDeployment(): boolean {
+  const publicUrl = process.env.PUBLIC_URL ?? "";
+  return (
+    publicUrl.length > 0 &&
+    !publicUrl.includes("localhost") &&
+    !publicUrl.includes("127.0.0.1")
+  );
+}
+
+// The OTP hash key used to matter less when it just meant "don't store raw
+// login codes" — but falling back to SENDBLUE_API_SECRET (a different
+// secret, used for a different purpose, that this router doesn't own) or
+// CONVEX_DEPLOYMENT (not a secret at all — a deployment slug like
+// "dev:foo-bar-123" that regularly ends up in URLs and logs) meant a real
+// deployment could end up hashing OTPs with materially weaker or
+// unintentionally shared key material. Real deployments must set
+// PUBLIC_AUTH_SECRET explicitly; this throws at boot (see
+// assertPublicAuthSecretConfigured, called from server/index.ts) rather than
+// on the first login attempt. Local dev keeps a static fallback so
+// `npm run dev` works out of the box.
+function publicAuthSecret(): string {
+  const explicit = process.env.PUBLIC_AUTH_SECRET;
+  if (explicit) return explicit;
+  if (isRealDeployment()) {
+    throw new Error(
+      "PUBLIC_AUTH_SECRET is required when PUBLIC_URL points at a real deployment " +
+        "(phone-login OTPs would otherwise hash with a weak or shared fallback key). " +
+        "Generate one with: openssl rand -base64 32",
+    );
+  }
+  return "azraj-dev-only-insecure-fallback";
+}
+
+export function assertPublicAuthSecretConfigured() {
+  publicAuthSecret();
+}
+
 function codeHash(phoneE164: string, code: string) {
-  const secret =
-    process.env.PUBLIC_AUTH_SECRET ??
-    process.env.SENDBLUE_API_SECRET ??
-    process.env.CONVEX_DEPLOYMENT ??
-    "azraj-dev";
   return crypto
     .createHash("sha256")
-    .update(`${secret}:${phoneE164}:${code}`)
+    .update(`${publicAuthSecret()}:${phoneE164}:${code}`)
     .digest("hex");
 }
 
