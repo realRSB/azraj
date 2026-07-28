@@ -353,8 +353,7 @@ export function createPublicAuthRouter(): express.Router {
     if (!sent) {
       res.status(502).json({
         code: "otp_delivery_failed",
-        error:
-          "start the iMessage thread first, then come back and send the code again.",
+        error: "couldn't send the one-time code. check the number and try again.",
       });
       return;
     }

@@ -492,6 +492,7 @@ export function App() {
   const [code, setCode] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
   const [joinMessageText, setJoinMessageText] = useState("I'm ready to join Azraj [...]!");
+  const [otpCountdown, setOtpCountdown] = useState(0);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authNeedsThread, setAuthNeedsThread] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
@@ -592,6 +593,12 @@ export function App() {
     setStoredSession(sessionToken);
     if (sessionToken) setConnectStep("connected");
   }, [sessionToken]);
+
+  useEffect(() => {
+    if (connectStep !== "code" || otpCountdown <= 0) return;
+    const timer = window.setTimeout(() => setOtpCountdown((value) => Math.max(0, value - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [connectStep, otpCountdown]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -706,6 +713,7 @@ export function App() {
       }
       setVerifiedPhone(String(data.phoneE164 ?? ""));
       setDevCode(typeof data.devCode === "string" ? data.devCode : null);
+      setOtpCountdown(60);
       setConnectStep("code");
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : String(err));
@@ -750,6 +758,7 @@ export function App() {
     setAuthNeedsThread(false);
     setDevCode(null);
     setCode("");
+    setOtpCountdown(0);
     if (!sessionToken) setConnectStep(step);
     setConnectOpen(true);
   }
@@ -813,7 +822,7 @@ export function App() {
           phone={phone}
           verifiedPhone={verifiedPhone}
           code={code}
-          devCode={devCode}
+          otpCountdown={otpCountdown}
           busy={authBusy}
           error={authError}
           needsThread={authNeedsThread}
@@ -877,7 +886,7 @@ function ConnectModal({
   phone,
   verifiedPhone,
   code,
-  devCode,
+  otpCountdown,
   busy,
   error,
   needsThread,
@@ -896,7 +905,7 @@ function ConnectModal({
   phone: string;
   verifiedPhone: string;
   code: string;
-  devCode: string | null;
+  otpCountdown: number;
   busy: boolean;
   error: string | null;
   needsThread: boolean;
@@ -919,7 +928,12 @@ function ConnectModal({
         aria-label="Close connection card"
         onClick={onClose}
       />
-      <div className="connect-card" role="dialog" aria-modal="true" aria-labelledby="connect-title">
+      <div
+        className={`connect-card ${step === "code" ? "is-code" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="connect-title"
+      >
         <button className="connect-close" type="button" aria-label="Close" onClick={onClose}>
           x
         </button>
@@ -996,12 +1010,14 @@ function ConnectModal({
                 placeholder="------"
                 inputMode="numeric"
                 autoComplete="one-time-code"
+                autoFocus
               />
             </label>
-            <p className="connect-resend">Resend code in 60s</p>
-            {devCode && <p className="connect-dev-code">dev code: {devCode}</p>}
-            <button className="connect-submit" type="submit" disabled={busy}>
-              {busy ? "checking..." : "verify and connect"}
+            <p className="connect-resend">
+              {otpCountdown > 0 ? `Resend code in ${otpCountdown}s` : "Resend code"}
+            </p>
+            <button className="connect-submit connect-verify" type="submit" disabled={busy || code.length !== 6}>
+              {busy ? "checking..." : "Verify"}
             </button>
           </form>
         )}
@@ -1039,16 +1055,15 @@ function ConnectModal({
         )}
 
         {error && <p className={`connect-error ${needsThread ? "is-soft" : ""}`}>{error}</p>}
-        <p className="connect-help">
-          {step === "join" &&
-            "Didn't open? Tap to copy the message, then send it to the Azraj number above."}
-          {step === "signin" &&
-            "Use the same phone number you've already texted Azraj from."}
-          {step === "code" &&
-            "Didn't get it? Make sure this number has already started an iMessage thread with Azraj."}
-          {step === "connected" &&
-            "Didn't open? Tap to copy the message, then send it to the Azraj number above."}
-        </p>
+        {step !== "code" && (
+          <p className="connect-help">
+            {step === "join" &&
+              "Didn't open? Tap to copy the message, then send it to the Azraj number above."}
+            {step === "signin" && "We send a one-time login code to this phone number."}
+            {step === "connected" &&
+              "Didn't open? Tap to copy the message, then send it to the Azraj number above."}
+          </p>
+        )}
       </div>
     </section>
   );
