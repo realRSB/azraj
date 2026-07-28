@@ -100,6 +100,12 @@ export function devCodePayload(code: string) {
   return process.env.BOOP_DEV_OTP_ECHO === "true" ? { devCode: code } : {};
 }
 
+function azrajNumberPayload() {
+  return {
+    azrajNumber: normalizeE164(process.env.SENDBLUE_FROM_NUMBER) ?? "",
+  };
+}
+
 // Outer wall for the two unauthenticated endpoints. /start costs real money on
 // every call (it sends an iMessage); /verify guards account access. The
 // per-phone throttle in convex/publicUsers.ts is the inner wall — these IP
@@ -206,6 +212,10 @@ async function listPublicToolkits(composioUserId: string, includeCatalog: boolea
 
 export function createPublicAuthRouter(): express.Router {
   const router = express.Router();
+
+  router.get("/config", (_req, res) => {
+    res.json({ ok: true, ...azrajNumberPayload() });
+  });
 
   router.post("/dashboard", async (req, res) => {
     const sessionToken = typeof req.body?.sessionToken === "string" ? req.body.sessionToken : "";
@@ -387,7 +397,7 @@ export function createPublicAuthRouter(): express.Router {
   router.post("/join/start", async (_req, res) => {
     try {
       const result = await issueJoinCode();
-      res.json({ ok: true, ...result });
+      res.json({ ok: true, ...azrajNumberPayload(), ...result });
     } catch (err) {
       console.error("[public-auth] join code issue failed", err);
       res.status(500).json({ error: "couldn't create a join code" });

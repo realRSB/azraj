@@ -117,6 +117,9 @@ describe("local server access", () => {
       isPublicServerRequest(request({ method: "POST", url: "/api/public-auth/join/start" })),
     ).toBe(true);
     expect(
+      isPublicServerRequest(request({ method: "GET", url: "/api/public-auth/config" })),
+    ).toBe(true);
+    expect(
       isPublicServerRequest(request({ method: "POST", url: "/api/public-auth/verify/" })),
     ).toBe(true);
     expect(
