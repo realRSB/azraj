@@ -459,6 +459,17 @@ async function publicAuthPost<T>(
   return data as T;
 }
 
+async function redeemDashboardLink(token: string) {
+  const res = await fetch("/api/public-auth/magic/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
+  const data = await parseJsonResponse(res);
+  if (!res.ok) throw new Error(String(data.error ?? "dashboard link expired"));
+  return data as { sessionToken: string };
+}
+
 export function App() {
   const [page, setPage] = useState<Page>(() =>
     window.location.pathname === "/dashboard" ? "dashboard" : "home",
@@ -545,6 +556,42 @@ export function App() {
     setStoredSession(sessionToken);
     if (sessionToken) setConnectStep("connected");
   }, [sessionToken]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const magicToken = url.searchParams.get("login");
+    if (!magicToken) return;
+
+    let cancelled = false;
+    setPage("dashboard");
+    setDashboard(undefined);
+    setAuthError(null);
+    setAuthBusy(true);
+
+    redeemDashboardLink(magicToken)
+      .then((result) => {
+        if (cancelled) return;
+        setSessionToken(result.sessionToken);
+        setConnectStep("connected");
+        setConnectOpen(false);
+        window.history.replaceState(null, "", "/dashboard");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDashboard(null);
+        setConnectStep("phone");
+        setConnectOpen(true);
+        setAuthError(err instanceof Error ? err.message : String(err));
+        window.history.replaceState(null, "", "/dashboard");
+      })
+      .finally(() => {
+        if (!cancelled) setAuthBusy(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!sessionToken) {
@@ -774,7 +821,7 @@ function LandingHero({ onConnect }: { onConnect: () => void }) {
           <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
           Start Connecting
         </button>
-        <p>verify your phone. text azraj. watch your dashboard fill up.</p>
+        <p>text azraj. get your dashboard link. watch your data fill up.</p>
       </div>
     </section>
   );
@@ -837,7 +884,7 @@ function ConnectModal({
         </h2>
         <p className="connect-copy">
           {step === "phone" &&
-            "text azraj first, then verify that same number to unlock your dashboard."}
+            "open iMessage and send the starter text. Azraj replies with your private dashboard link."}
           {step === "code" &&
             `enter the 6-digit code sent to ${maskPhone(verifiedPhone || phone)}.`}
           {step === "connected" &&
@@ -845,32 +892,39 @@ function ConnectModal({
         </p>
 
         {step === "phone" && (
-          <form className="connect-form" onSubmit={onStart}>
-            <div className={`text-first-card ${needsThread ? "is-active" : ""}`}>
-              <span>{needsThread ? "one quick step" : "first time here?"}</span>
+          <div className="connect-form">
+            <div className={`text-first-card ${needsThread || busy ? "is-active" : ""}`}>
+              <span>{busy ? "checking link" : "first time here?"}</span>
               <p>
-                open iMessage and send the starter text. after Azraj has the thread,
-                come back and hit send code.
+                iMessage proves the phone is yours. send this exact text and Azraj
+                will reply with a dashboard link.
               </p>
-              <a className="connect-open connect-open-inline" href={smsHref}>
-                <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
-                Text Azraj first
-              </a>
             </div>
-            <label>
-              <span>phone number</span>
-              <input
-                value={phone}
-                onChange={(event) => onPhoneChange(event.target.value)}
-                placeholder="+1 786 213 9361"
-                inputMode="tel"
-                autoComplete="tel"
-              />
-            </label>
-            <button className="connect-submit" type="submit" disabled={busy}>
-              {busy ? "sending code..." : "send code"}
+
+            <button
+              className="connect-field"
+              type="button"
+              onClick={() => onCopy("number", AZRAJ_NUMBER)}
+            >
+              <span>Your Azraj number</span>
+              <strong>{AZRAJ_NUMBER}</strong>
+              <small>{copied === "number" ? "copied" : "tap to copy"}</small>
             </button>
-          </form>
+
+            <button
+              className="connect-field connect-message"
+              type="button"
+              onClick={() => onCopy("message", starterMessage)}
+            >
+              <strong>{starterMessage}</strong>
+              <small>{copied === "message" ? "copied" : "tap to copy message"}</small>
+            </button>
+
+            <a className="connect-open" href={smsHref}>
+              <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
+              Open iMessage
+            </a>
+          </div>
         )}
 
         {step === "code" && (
@@ -949,8 +1003,8 @@ function UserDashboard({
       <section className="public-dashboard empty-dashboard">
         <div className="dashboard-empty-card">
           <p>dashboard</p>
-          <h1>verify your number first</h1>
-          <span>azraj needs your phone login before it can show texts, memory, and costs.</span>
+          <h1>text azraj first</h1>
+          <span>send one iMessage and Azraj will reply with your private dashboard link.</span>
           <button type="button" className="start-button" onClick={onConnect}>
             <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
             Start Connecting
