@@ -141,12 +141,128 @@ export const verifyPhoneOtp = mutation({
   },
 });
 
+export const issueDashboardMagicLink = mutation({
+  args: {
+    phoneE164: v.string(),
+    tokenHash: v.string(),
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const userId = await ensureUser(ctx, args.phoneE164);
+    const existingRows = await ctx.db
+      .query("dashboardMagicLinks")
+      .withIndex("by_phone", (q) => q.eq("phoneE164", args.phoneE164))
+      .order("desc")
+      .take(10);
+    for (const row of existingRows) {
+      if (!row.consumedAt) {
+        await ctx.db.patch(row._id, { consumedAt: now });
+      }
+    }
+    return await ctx.db.insert("dashboardMagicLinks", {
+      userId,
+      phoneE164: args.phoneE164,
+      tokenHash: args.tokenHash,
+      createdAt: now,
+      expiresAt: args.expiresAt,
+    });
+  },
+});
+
+export const redeemDashboardMagicLink = mutation({
+  args: {
+    tokenHash: v.string(),
+    sessionToken: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const link = await ctx.db
+      .query("dashboardMagicLinks")
+      .withIndex("by_token_hash", (q) => q.eq("tokenHash", args.tokenHash))
+      .unique();
+    if (!link || link.consumedAt || link.expiresAt < now) {
+      return { ok: false as const, reason: "expired" };
+    }
+
+    const userId = await ensureUser(ctx, link.phoneE164);
+    const conversationId = `sms:${link.phoneE164}`;
+    await linkConversation(ctx, userId, link.phoneE164, conversationId);
+    await ctx.db.patch(userId, {
+      onboardingStatus: "connected",
+      updatedAt: now,
+      lastSeenAt: now,
+    });
+    await ctx.db.patch(link._id, { consumedAt: now });
+    await ctx.db.insert("userSessions", {
+      userId,
+      sessionToken: args.sessionToken,
+      createdAt: now,
+      lastSeenAt: now,
+      expiresAt: now + SESSION_TTL_MS,
+    });
+    return {
+      ok: true as const,
+      sessionToken: args.sessionToken,
+      phoneE164: link.phoneE164,
+      conversationId,
+    };
+  },
+});
+
+export const issueJoinCode = mutation({
+  args: {
+    codeHash: v.string(),
+    expiresAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    return await ctx.db.insert("publicJoinCodes", {
+      codeHash: args.codeHash,
+      createdAt: now,
+      expiresAt: args.expiresAt,
+    });
+  },
+});
+
+export const consumeJoinCode = mutation({
+  args: {
+    codeHash: v.string(),
+    phoneE164: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const joinCode = await ctx.db
+      .query("publicJoinCodes")
+      .withIndex("by_code_hash", (q) => q.eq("codeHash", args.codeHash))
+      .order("desc")
+      .first();
+    if (!joinCode || joinCode.consumedAt || joinCode.expiresAt < now) {
+      return { ok: false as const, reason: "expired" };
+    }
+    const userId = await ensureUser(ctx, args.phoneE164);
+    const conversationId = `sms:${args.phoneE164}`;
+    await linkConversation(ctx, userId, args.phoneE164, conversationId);
+    await ctx.db.patch(userId, {
+      onboardingStatus: "connected",
+      updatedAt: now,
+      lastSeenAt: now,
+    });
+    await ctx.db.patch(joinCode._id, {
+      consumedAt: now,
+      phoneE164: args.phoneE164,
+    });
+    return { ok: true as const, phoneE164: args.phoneE164, conversationId };
+  },
+});
+
 export const linkInboundConversation = mutation({
   args: {
     phoneE164: v.string(),
     conversationId: v.string(),
   },
   handler: async (ctx, args) => {
+    const existing = await getUserByPhone(ctx, args.phoneE164);
     const userId = await ensureUser(ctx, args.phoneE164);
     await linkConversation(ctx, userId, args.phoneE164, args.conversationId);
     await ctx.db.patch(userId, {
@@ -154,7 +270,7 @@ export const linkInboundConversation = mutation({
       updatedAt: Date.now(),
       lastSeenAt: Date.now(),
     });
-    return userId;
+    return { userId, isNewUser: !existing };
   },
 });
 
