@@ -43,7 +43,7 @@ declare global {
   }
 }
 
-const AZRAJ_NUMBER = import.meta.env.VITE_AZRAJ_PHONE_NUMBER || "+17862139361";
+const DEFAULT_AZRAJ_NUMBER = import.meta.env.VITE_AZRAJ_PHONE_NUMBER || "+17862139361";
 const SESSION_KEY = "azraj.publicSessionToken";
 
 type Page = "home" | "dashboard";
@@ -477,7 +477,14 @@ async function createJoinChallenge() {
   });
   const data = await parseJsonResponse(res);
   if (!res.ok) throw new Error(String(data.error ?? "couldn't create join code"));
-  return data as { code: string; message: string };
+  return data as { azrajNumber?: string; code: string; message: string };
+}
+
+async function fetchPublicAuthConfig() {
+  const res = await fetch("/api/public-auth/config");
+  const data = await parseJsonResponse(res);
+  if (!res.ok) throw new Error(String(data.error ?? "couldn't load auth config"));
+  return data as { azrajNumber?: string };
 }
 
 export function App() {
@@ -491,7 +498,8 @@ export function App() {
   const [verifiedPhone, setVerifiedPhone] = useState("");
   const [code, setCode] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
-  const [joinMessageText, setJoinMessageText] = useState("I'm ready to join Azraj [...]!");
+  const [azrajNumber, setAzrajNumber] = useState("");
+  const [joinMessageText, setJoinMessageText] = useState("");
   const [otpCountdown, setOtpCountdown] = useState(0);
   const [authError, setAuthError] = useState<string | null>(null);
   const [authNeedsThread, setAuthNeedsThread] = useState(false);
@@ -565,6 +573,20 @@ export function App() {
   }, [connectOpen]);
 
   useEffect(() => {
+    let cancelled = false;
+    fetchPublicAuthConfig()
+      .then((result) => {
+        if (!cancelled && result.azrajNumber) setAzrajNumber(result.azrajNumber);
+      })
+      .catch(() => {
+        if (!cancelled) setAzrajNumber(DEFAULT_AZRAJ_NUMBER);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!connectOpen || connectStep !== "join" || sessionToken) return;
 
     let cancelled = false;
@@ -572,11 +594,14 @@ export function App() {
     setAuthError(null);
     createJoinChallenge()
       .then((result) => {
-        if (!cancelled) setJoinMessageText(result.message);
+        if (!cancelled) {
+          if (result.azrajNumber) setAzrajNumber(result.azrajNumber);
+          setJoinMessageText(result.message);
+        }
       })
       .catch((err) => {
         if (!cancelled) {
-          setJoinMessageText("I'm ready to join Azraj [...]!");
+          setJoinMessageText("");
           setAuthError(err instanceof Error ? err.message : String(err));
         }
       })
@@ -685,7 +710,8 @@ export function App() {
 
   const starterMessage = joinMessageText;
   const joinText = encodeURIComponent(starterMessage);
-  const joinSmsHref = `sms:${smsNumber(AZRAJ_NUMBER)}?&body=${joinText}`;
+  const joinSmsHref = `sms:${smsNumber(azrajNumber)}?&body=${joinText}`;
+  const displayedAzrajNumber = azrajNumber || "loading Azraj number...";
   const currentStory = storySteps[activeStep] ?? storySteps[0];
 
   async function copyText(kind: "number" | "message", value: string) {
@@ -736,6 +762,8 @@ export function App() {
       if (!res.ok) throw new Error(String(data.error ?? "code didn't work"));
       setSessionToken(String(data.sessionToken ?? ""));
       setConnectStep("connected");
+      setConnectOpen(false);
+      navigate("dashboard");
       setCode("");
     } catch (err) {
       setAuthError(err instanceof Error ? err.message : String(err));
@@ -815,6 +843,7 @@ export function App() {
         <UserDashboard
           dashboard={dashboard}
           sessionToken={sessionToken}
+          azrajNumber={displayedAzrajNumber}
           onConnect={() => openConnect("join")}
           onSignOut={signOut}
         />
@@ -836,6 +865,8 @@ export function App() {
           error={authError}
           needsThread={authNeedsThread}
           copied={copied}
+          azrajNumber={displayedAzrajNumber}
+          azrajNumberReady={Boolean(azrajNumber)}
           starterMessage={starterMessage}
           smsHref={joinSmsHref}
           onClose={() => setConnectOpen(false)}
@@ -900,6 +931,8 @@ function ConnectModal({
   error,
   needsThread,
   copied,
+  azrajNumber,
+  azrajNumberReady,
   starterMessage,
   smsHref,
   onClose,
@@ -919,6 +952,8 @@ function ConnectModal({
   error: string | null;
   needsThread: boolean;
   copied: "number" | "message" | null;
+  azrajNumber: string;
+  azrajNumberReady: boolean;
   starterMessage: string;
   smsHref: string;
   onClose: () => void;
@@ -929,6 +964,9 @@ function ConnectModal({
   onCopy: (kind: "number" | "message", value: string) => void;
   onDashboard: () => void;
 }) {
+  const connectedMessage = "help me plan today";
+  const connectedSmsHref = `sms:${smsNumber(azrajNumber)}?&body=${encodeURIComponent(connectedMessage)}`;
+
   return (
     <section className="connect-overlay" aria-label="Start connecting with Azraj">
       <button
@@ -967,10 +1005,11 @@ function ConnectModal({
             <button
               className="connect-field"
               type="button"
-              onClick={() => onCopy("number", AZRAJ_NUMBER)}
+              onClick={() => onCopy("number", azrajNumber)}
+              disabled={!azrajNumberReady}
             >
               <span>Your Azraj number</span>
-              <strong>{AZRAJ_NUMBER}</strong>
+              <strong>{azrajNumber}</strong>
               <small>{copied === "number" ? "copied" : "tap to copy"}</small>
             </button>
 
@@ -978,12 +1017,16 @@ function ConnectModal({
               className="connect-field connect-message"
               type="button"
               onClick={() => onCopy("message", starterMessage)}
+              disabled={!starterMessage}
             >
-              <strong>{starterMessage}</strong>
+              <strong>{starterMessage || "creating your secure join code..."}</strong>
               <small>{copied === "message" ? "copied" : "tap to copy message"}</small>
             </button>
 
-            <a className="connect-open" href={smsHref}>
+            <a
+              className={`connect-open ${!starterMessage || !azrajNumberReady ? "is-disabled" : ""}`}
+              href={starterMessage && azrajNumberReady ? smsHref : undefined}
+            >
               <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
               Open iMessage
             </a>
@@ -1036,23 +1079,24 @@ function ConnectModal({
             <button
               className="connect-field"
               type="button"
-              onClick={() => onCopy("number", AZRAJ_NUMBER)}
+              onClick={() => onCopy("number", azrajNumber)}
+              disabled={!azrajNumberReady}
             >
               <span>Your Azraj number</span>
-              <strong>{AZRAJ_NUMBER}</strong>
+              <strong>{azrajNumber}</strong>
               <small>{copied === "number" ? "copied" : "tap to copy"}</small>
             </button>
 
             <button
               className="connect-field connect-message"
               type="button"
-              onClick={() => onCopy("message", starterMessage)}
+              onClick={() => onCopy("message", connectedMessage)}
             >
-              <strong>{starterMessage}</strong>
+              <strong>{connectedMessage}</strong>
               <small>{copied === "message" ? "copied" : "tap to copy message"}</small>
             </button>
 
-            <a className="connect-open" href={smsHref}>
+            <a className={`connect-open ${!azrajNumberReady ? "is-disabled" : ""}`} href={azrajNumberReady ? connectedSmsHref : undefined}>
               <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
               Open iMessage
             </a>
@@ -1081,11 +1125,13 @@ function ConnectModal({
 function UserDashboard({
   dashboard,
   sessionToken,
+  azrajNumber,
   onConnect,
   onSignOut,
 }: {
   dashboard: PublicDashboard | null | undefined;
   sessionToken: string | null;
+  azrajNumber: string;
   onConnect: () => void;
   onSignOut: () => void;
 }) {
@@ -1138,6 +1184,7 @@ function UserDashboard({
       <ConsumerDashboardShell
         dashboard={dashboard}
         sessionToken={sessionToken}
+        azrajNumber={azrajNumber}
         onSignOut={onSignOut}
       />
     </section>
@@ -1147,10 +1194,12 @@ function UserDashboard({
 function ConsumerDashboardShell({
   dashboard,
   sessionToken,
+  azrajNumber,
   onSignOut,
 }: {
   dashboard: PublicDashboard;
   sessionToken: string;
+  azrajNumber: string;
   onSignOut: () => void;
 }) {
   const [view, setView] = useState<DashboardView>("dashboard");
@@ -1267,6 +1316,7 @@ function ConsumerDashboardShell({
               <SettingsView
                 dashboard={dashboard}
                 sessionToken={sessionToken}
+                azrajNumber={azrajNumber}
                 onSignOut={onSignOut}
               />
             )}
@@ -1938,10 +1988,12 @@ function IntegrationLogoMark({ toolkit }: { toolkit: IntegrationToolkit }) {
 function SettingsView({
   dashboard,
   sessionToken,
+  azrajNumber,
   onSignOut,
 }: {
   dashboard: PublicDashboard;
   sessionToken: string;
+  azrajNumber: string;
   onSignOut: () => void;
 }) {
   const browserTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "America/New_York";
@@ -2057,7 +2109,7 @@ function SettingsView({
           <SmallFact label="status" value={dashboard.user.onboardingStatus} />
           <SmallFact label="conversations" value={String(dashboard.conversationIds.length)} />
           <SmallFact label="timezone" value={dashboard.user.timezone ?? "not set"} />
-          <SmallFact label="azraj number" value={AZRAJ_NUMBER} />
+          <SmallFact label="azraj number" value={azrajNumber} />
         </div>
         <button
           type="button"
