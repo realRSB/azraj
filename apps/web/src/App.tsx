@@ -47,7 +47,7 @@ const AZRAJ_NUMBER = import.meta.env.VITE_AZRAJ_PHONE_NUMBER || "+17862139361";
 const SESSION_KEY = "azraj.publicSessionToken";
 
 type Page = "home" | "dashboard";
-type ConnectStep = "phone" | "code" | "connected";
+type ConnectStep = "join" | "signin" | "code" | "connected";
 type DashboardView =
   | "dashboard"
   | "messages"
@@ -470,17 +470,28 @@ async function redeemDashboardLink(token: string) {
   return data as { sessionToken: string };
 }
 
+async function createJoinChallenge() {
+  const res = await fetch("/api/public-auth/join/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+  });
+  const data = await parseJsonResponse(res);
+  if (!res.ok) throw new Error(String(data.error ?? "couldn't create join code"));
+  return data as { code: string; message: string };
+}
+
 export function App() {
   const [page, setPage] = useState<Page>(() =>
     window.location.pathname === "/dashboard" ? "dashboard" : "home",
   );
   const [sessionToken, setSessionToken] = useState<string | null>(getStoredSession);
   const [connectOpen, setConnectOpen] = useState(false);
-  const [connectStep, setConnectStep] = useState<ConnectStep>(sessionToken ? "connected" : "phone");
+  const [connectStep, setConnectStep] = useState<ConnectStep>(sessionToken ? "connected" : "join");
   const [phone, setPhone] = useState("");
   const [verifiedPhone, setVerifiedPhone] = useState("");
   const [code, setCode] = useState("");
   const [devCode, setDevCode] = useState<string | null>(null);
+  const [joinMessageText, setJoinMessageText] = useState("I'm ready to join Azraj [...]!");
   const [authError, setAuthError] = useState<string | null>(null);
   const [authNeedsThread, setAuthNeedsThread] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
@@ -553,6 +564,31 @@ export function App() {
   }, [connectOpen]);
 
   useEffect(() => {
+    if (!connectOpen || connectStep !== "join" || sessionToken) return;
+
+    let cancelled = false;
+    setAuthBusy(true);
+    setAuthError(null);
+    createJoinChallenge()
+      .then((result) => {
+        if (!cancelled) setJoinMessageText(result.message);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setJoinMessageText("I'm ready to join Azraj [...]!");
+          setAuthError(err instanceof Error ? err.message : String(err));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setAuthBusy(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connectOpen, connectStep, sessionToken]);
+
+  useEffect(() => {
     setStoredSession(sessionToken);
     if (sessionToken) setConnectStep("connected");
   }, [sessionToken]);
@@ -579,7 +615,7 @@ export function App() {
       .catch((err) => {
         if (cancelled) return;
         setDashboard(null);
-        setConnectStep("phone");
+        setConnectStep("join");
         setConnectOpen(true);
         setAuthError(err instanceof Error ? err.message : String(err));
         window.history.replaceState(null, "", "/dashboard");
@@ -640,9 +676,9 @@ export function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  const firstText = encodeURIComponent("yo azraj, help me plan today.");
-  const starterMessage = "yo azraj, help me plan today.";
-  const smsHref = `sms:${smsNumber(AZRAJ_NUMBER)}?&body=${firstText}`;
+  const starterMessage = joinMessageText;
+  const joinText = encodeURIComponent(starterMessage);
+  const joinSmsHref = `sms:${smsNumber(AZRAJ_NUMBER)}?&body=${joinText}`;
   const currentStory = storySteps[activeStep] ?? storySteps[0];
 
   async function copyText(kind: "number" | "message", value: string) {
@@ -702,11 +738,20 @@ export function App() {
 
   function signOut() {
     setSessionToken(null);
-    setConnectStep("phone");
+    setConnectStep("join");
     setAuthNeedsThread(false);
     setVerifiedPhone("");
     setPhone("");
     if (page === "dashboard") navigate("home");
+  }
+
+  function openConnect(step: "join" | "signin") {
+    setAuthError(null);
+    setAuthNeedsThread(false);
+    setDevCode(null);
+    setCode("");
+    if (!sessionToken) setConnectStep(step);
+    setConnectOpen(true);
   }
 
   return (
@@ -736,10 +781,10 @@ export function App() {
               </>
             ) : (
               <>
-                <button type="button" onClick={() => setConnectOpen(true)}>
+                <button type="button" onClick={() => openConnect("signin")}>
                   sign in
                 </button>
-                <button type="button" className="nav-auth-primary" onClick={() => setConnectOpen(true)}>
+                <button type="button" className="nav-auth-primary" onClick={() => openConnect("join")}>
                   sign up
                 </button>
               </>
@@ -752,12 +797,12 @@ export function App() {
         <UserDashboard
           dashboard={dashboard}
           sessionToken={sessionToken}
-          onConnect={() => setConnectOpen(true)}
+          onConnect={() => openConnect("join")}
           onSignOut={signOut}
         />
       ) : (
         <>
-          <LandingHero onConnect={() => setConnectOpen(true)} />
+          <LandingHero onConnect={() => openConnect("join")} />
           <StorySection currentStory={currentStory} activeStep={activeStep} />
         </>
       )}
@@ -774,7 +819,7 @@ export function App() {
           needsThread={authNeedsThread}
           copied={copied}
           starterMessage={starterMessage}
-          smsHref={smsHref}
+          smsHref={joinSmsHref}
           onClose={() => setConnectOpen(false)}
           onPhoneChange={setPhone}
           onCodeChange={setCode}
@@ -880,24 +925,28 @@ function ConnectModal({
         </button>
         <p className="connect-brand">azraj</p>
         <h2 id="connect-title">
-          {step === "connected" ? "you’re connected" : "Welcome to Azraj"}
+          {step === "connected" && "you're connected"}
+          {step === "code" && "Enter Code"}
+          {step === "signin" && "Sign in to Azraj"}
+          {step === "join" && "Welcome to Azraj"}
         </h2>
         <p className="connect-copy">
-          {step === "phone" &&
-            "open iMessage and send the starter text. Azraj replies with your private dashboard link."}
+          {step === "join" &&
+            "Send this exact message below to get started or simply press the Open iMessage button"}
+          {step === "signin" && "Enter your phone number and we'll send a 6-digit login code."}
           {step === "code" &&
-            `enter the 6-digit code sent to ${maskPhone(verifiedPhone || phone)}.`}
+            `We sent a 6-digit code to ${maskPhone(verifiedPhone || phone)}`}
           {step === "connected" &&
             "send this message to start your accountability thread, then open your dashboard anytime."}
         </p>
 
-        {step === "phone" && (
+        {step === "join" && (
           <div className="connect-form">
             <div className={`text-first-card ${needsThread || busy ? "is-active" : ""}`}>
-              <span>{busy ? "checking link" : "first time here?"}</span>
+              <span>{busy ? "creating secure code" : "new secure code"}</span>
               <p>
-                iMessage proves the phone is yours. send this exact text and Azraj
-                will reply with a dashboard link.
+                Every signup gets a fresh bracket code. Azraj only unlocks the
+                dashboard for the phone number that sends it.
               </p>
             </div>
 
@@ -927,18 +976,38 @@ function ConnectModal({
           </div>
         )}
 
+        {step === "signin" && (
+          <form className="connect-form" onSubmit={onStart}>
+            <label>
+              <span>phone number</span>
+              <input
+                value={phone}
+                onChange={(event) => onPhoneChange(event.target.value)}
+                placeholder="+1 786 213 9361"
+                inputMode="tel"
+                autoComplete="tel"
+              />
+            </label>
+            <button className="connect-submit" type="submit" disabled={busy}>
+              {busy ? "sending code..." : "send code"}
+            </button>
+          </form>
+        )}
+
         {step === "code" && (
           <form className="connect-form" onSubmit={onVerify}>
             <label>
-              <span>verification code</span>
+              <span className="sr-only">verification code</span>
               <input
+                className="connect-code-input"
                 value={code}
                 onChange={(event) => onCodeChange(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="123456"
+                placeholder="------"
                 inputMode="numeric"
                 autoComplete="one-time-code"
               />
             </label>
+            <p className="connect-resend">Resend code in 60s</p>
             {devCode && <p className="connect-dev-code">dev code: {devCode}</p>}
             <button className="connect-submit" type="submit" disabled={busy}>
               {busy ? "checking..." : "verify and connect"}
@@ -980,7 +1049,14 @@ function ConnectModal({
 
         {error && <p className={`connect-error ${needsThread ? "is-soft" : ""}`}>{error}</p>}
         <p className="connect-help">
-          Didn&apos;t open? Copy the message, then send it to the Azraj number above.
+          {step === "join" &&
+            "Didn't open? Tap to copy the message, then send it to the Azraj number above."}
+          {step === "signin" &&
+            "Use the same phone number you've already texted Azraj from."}
+          {step === "code" &&
+            "Didn't get it? Make sure this number has already started an iMessage thread with Azraj."}
+          {step === "connected" &&
+            "Didn't open? Tap to copy the message, then send it to the Azraj number above."}
         </p>
       </div>
     </section>
