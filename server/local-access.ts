@@ -145,6 +145,7 @@ export function isPublicServerRequest(request: RequestLike): boolean {
       publicAuthPath === "/timezone" ||
       /^\/integrations\/[^/]+\/(?:tools|authorize|disconnect)$/.test(publicAuthPath) ||
       /^\/integrations\/connections\/[^/]+\/rename$/.test(publicAuthPath));
+  const isPublicAuthGet = method === "GET" && publicAuthPath === "/config";
   return (
     (readsPublicWeb &&
       (normalizedPath === "/" ||
@@ -157,6 +158,7 @@ export function isPublicServerRequest(request: RequestLike): boolean {
     // Token-gated admin endpoint (disabled unless STREAK_ADMIN_TOKEN is set and
     // a matching x-admin-token header is provided — enforced in the handler).
     (method === "POST" && normalizedPath === "/streak/admin/set-count") ||
-    isPublicAuthPost
+    isPublicAuthPost ||
+    isPublicAuthGet
   );
 }
