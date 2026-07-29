@@ -5,7 +5,7 @@ import {
   isCurrentConversationDraft,
 } from "../server/draft-tools.js";
 import { EXECUTION_SYSTEM } from "../server/execution-agent.js";
-import { INTERACTION_SYSTEM } from "../server/interaction-agent.js";
+import { INTERACTION_SYSTEM, LIVE_STATE_TEMPLATE } from "../server/interaction-agent.js";
 import { CODEX_USER_FACING_VOICE_OVERLAY } from "../server/runtimes/codex-app-server.js";
 
 describe("Azraj user-facing identity", () => {
@@ -68,10 +68,31 @@ describe("Azraj accountability coaching prompt", () => {
   });
 
   it("adapts per user and drops the act when things get heavy", () => {
-    expect(INTERACTION_SYSTEM).toContain("{{VOICE_PROFILE}}");
-    expect(INTERACTION_SYSTEM).toContain("{{VOICE_EXAMPLES}}");
+    // The per-user slots live in LIVE_STATE_TEMPLATE rather than the system
+    // prompt so the system prompt stays byte-identical and therefore cacheable.
+    // The system prompt still has to point at them, or the model won't know the
+    // block is coming.
+    expect(LIVE_STATE_TEMPLATE).toContain("{{VOICE_PROFILE}}");
+    expect(LIVE_STATE_TEMPLATE).toContain("{{VOICE_EXAMPLES}}");
+    expect(INTERACTION_SYSTEM).toContain("LIVE STATE");
     expect(INTERACTION_SYSTEM).toContain("Read the room");
     expect(CODEX_USER_FACING_VOICE_OVERLAY).toContain("venting");
+  });
+
+  // Anything interpolated per turn must stay out of the system prompt: one
+  // stray placeholder there silently reinstates a ~10k-token cache miss on
+  // every single message.
+  it("keeps all per-turn placeholders out of the cached system prompt", () => {
+    for (const slot of [
+      "{{SITUATION}}",
+      "{{VOICE_PROFILE}}",
+      "{{VOICE_EXAMPLES}}",
+      "{{INTEGRATIONS}}",
+      "{{PENDING_CONTINUATION}}",
+    ]) {
+      expect(INTERACTION_SYSTEM).not.toContain(slot);
+      expect(LIVE_STATE_TEMPLATE).toContain(slot);
+    }
   });
 });
 

@@ -30,7 +30,7 @@ import { redactPhoneNumbers } from "./privacy.js";
 import { cleanReplyText } from "./text-style.js";
 import { buildSituation } from "./situation.js";
 import { sampleVoiceCorpus } from "./voice-corpus.js";
-import { buildVoiceProfile } from "./voice-profile.js";
+import { VOICE_HISTORY_LIMIT, voiceProfileFromMessages } from "./voice-profile.js";
 import { touchStreak } from "./streak/service.js";
 import { getUserTimezone } from "./timezone-config.js";
 import {
@@ -48,6 +48,9 @@ import {
 // condition — usage/rate throttling under load, a flaky MCP-server start, a
 // network blip — rather than a deterministic bug. Detect those so the dispatcher
 // can retry the turn instead of failing it outright.
+// Prior turns shown to the dispatcher in the prompt's history block.
+const HISTORY_TURNS = 9;
+
 function isTransientRuntimeError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return /exited with code\s+\d+/i.test(msg) || /process exited/i.test(msg);
@@ -61,8 +64,10 @@ You are a DISPATCHER, not a doer. Your job:
 3. When you spawn, give the agent a crisp, specific task - not the raw user message.
 4. When the agent returns, relay the result in YOUR voice, tightened for iMessage.
 
-CURRENT SITUATION (auto-loaded for you every turn - authoritative, already true):
-{{SITUATION}}
+CURRENT SITUATION is auto-loaded for you every turn - authoritative, already
+true. It arrives in the LIVE STATE block at the top of the user message, along
+with this person's voice profile and your available integrations. Read that
+block before you reply. This system prompt is fixed; LIVE STATE is what changes.
 
 How to use it:
 - This is REAL STATE, not a suggestion. Read it before you reply. It is fresher
@@ -194,16 +199,15 @@ Rewrites (left is what NOT to send, right is the vibe):
 - "You did not complete your objectives today. What went wrong?"
   -> "so today got away from you. what happened"
 
-HOW THIS PERSON TEXTS (measured from their own messages - adapt toward them):
-{{VOICE_PROFILE}}
+HOW THIS PERSON TEXTS is measured from their own messages - see the voice
+profile in the LIVE STATE block. Adapt toward them.
 This outranks the defaults above when the two disagree. Someone who never uses
 emoji should not start getting them because you like them. Adapt toward them,
 though - don't become them: even with the most formal user, the floor is still
 "a friend texting", never a support agent.
 
-HOW YOU SOUND (reference exchanges, a different slice each turn):
-{{VOICE_EXAMPLES}}
-
+HOW YOU SOUND: the LIVE STATE block carries reference exchanges, a different
+slice each turn.
 These are for calibrating register, not lines to reuse. Never send one verbatim
 - repeating a canned line is exactly how someone clocks you as a bot. Notice
 what they have in common: short, reactive, specific to what was actually said,
@@ -464,9 +468,8 @@ Choosing integrations for spawn_agent:
 - If you're unsure whether a toolkit exists, prefer the toolkit name and let
   the sub-agent fall back if it doesn't have the right tool surface.
 
-Available integrations for spawn_agent: {{INTEGRATIONS}}
-
-Pending continuation for this conversation: {{PENDING_CONTINUATION}}
+The integrations available to spawn_agent, and any pending continuation for this
+conversation, are both listed in the LIVE STATE block.
 
 When pending continuation is non-null, a previous sub-agent paused mid-task
 and asked the user to do something by hand (login, OAuth, captcha, file
@@ -496,6 +499,35 @@ than guessing what they want.
 
 Format: Plain iMessage-friendly text. Markdown sparingly. Lowercase ordinary prose by default, but keep names/acronyms/URLs correct. Keep replies under ~400 chars when you can.`;
 
+// Everything that changes from turn to turn lives here rather than in
+// INTERACTION_SYSTEM, and rides in with the user message.
+//
+// This is a latency fix, not a cosmetic one. The system prompt is the cached
+// prefix of every request; anything interpolated into it invalidates that cache
+// on every single turn, so ~10k tokens got re-processed as a cache WRITE each
+// time instead of being read back for near-free. Keeping the system prompt
+// byte-identical turn over turn makes it cacheable, and the volatile state
+// costs the same either way because the user message is never cached.
+//
+// The model sees exactly the same information; only its position moved.
+export const LIVE_STATE_TEMPLATE = `================================ LIVE STATE ================================
+This block is rebuilt for THIS message. It is authoritative and already true -
+fresher than your assumptions and fresher than old conversation history.
+
+CURRENT SITUATION:
+{{SITUATION}}
+
+HOW THIS PERSON TEXTS (measured from their own messages - adapt toward them):
+{{VOICE_PROFILE}}
+
+HOW YOU SOUND (reference exchanges, a different slice each turn):
+{{VOICE_EXAMPLES}}
+
+Available integrations for spawn_agent: {{INTEGRATIONS}}
+
+Pending continuation for this conversation: {{PENDING_CONTINUATION}}
+============================================================================`;
+
 interface HandleOpts {
   conversationId: string;
   content: string;
@@ -515,6 +547,34 @@ interface HandleOpts {
 
 function randomId(prefix: string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// Per-turn phase timing. A turn is a chain of network waits (Convex, Composio,
+// the model) and without a breakdown it's impossible to tell whether a slow
+// reply was the model thinking or us doing serial I/O before it ever started.
+// Cheap enough to leave on permanently.
+function createPhaseTimer() {
+  const phases: Array<[string, number]> = [];
+  let mark = Date.now();
+  return {
+    lap(name: string): void {
+      const now = Date.now();
+      phases.push([name, now - mark]);
+      mark = now;
+    },
+    async time<T>(name: string, work: Promise<T>): Promise<T> {
+      const start = Date.now();
+      try {
+        return await work;
+      } finally {
+        phases.push([name, Date.now() - start]);
+        mark = Date.now();
+      }
+    },
+    format(): string {
+      return phases.map(([name, ms]) => `${name}=${ms}ms`).join(" ");
+    },
+  };
 }
 
 function runtimeLabel(runtime: "claude" | "codex"): string {
@@ -638,12 +698,24 @@ export function resolveSpawnIntegrations(
 
 export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   const turnId = randomId("turn");
+  // Whole-turn clock: starts before the first I/O so the recorded durationMs
+  // matches what the user actually waited, not just the model leg.
+  const turnStart = Date.now();
+  const timer = createPhaseTimer();
   const composioUserId = composioUserIdForConversation(opts.conversationId);
-  const integrations = (await listEnabledIntegrations(composioUserId)).map((i) => i.name);
 
   const inboundRole = opts.kind === "proactive" ? "system" : "user";
   const inboundImageStorageIds = (opts.images ?? []).map((i) => i.storageId);
-  await convex.mutation(api.messages.send, {
+
+  // Everything needed to assemble the prompt is independent of everything else,
+  // so it all goes out at once. Run serially this was five round-trips of dead
+  // time (Composio, then persist, then pending, then history, then grounding)
+  // before the model saw a single token.
+  //
+  // Persisting the inbound message races the history read on purpose: the read
+  // filters this turn out by turnId, so the prompt is identical whether or not
+  // the write has landed yet, and neither has to wait for the other.
+  const persistInbound = convex.mutation(api.messages.send, {
     conversationId: opts.conversationId,
     role: inboundRole,
     content: opts.content,
@@ -655,6 +727,35 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
         : undefined,
     mediaError: opts.mediaError,
   });
+
+  const [integrations, pendingContinuation, priorMessages, situation] =
+    await Promise.all([
+      listEnabledIntegrations(composioUserId).then((mods) => mods.map((i) => i.name)),
+      convex.query(api.pendingContinuations.get, {
+        conversationId: opts.conversationId,
+      }),
+      // Fetched on proactive turns too: those skip the history block, but the
+      // voice profile is measured from the same rows and a proactive notice
+      // should still sound like it was written for this person.
+      convex.query(api.messages.list, {
+        conversationId: opts.conversationId,
+        limit: VOICE_HISTORY_LIMIT,
+      }) as Promise<Array<{ role: string; content: string; turnId?: string }>>,
+      // Ground the turn in the user's real state (time, contract, live
+      // check-ins, streak, relevant memories) instead of hoping the model calls
+      // the right tools. Best-effort — a failure costs grounding, never the
+      // reply.
+      buildSituation({
+        conversationId: opts.conversationId,
+        userText: opts.content,
+      }).catch((err) => {
+        console.warn("[situation] build failed", err);
+        return "(unavailable this turn — use recall / list_automations / get_daily_contract)";
+      }),
+      persistInbound,
+    ]);
+  timer.lap("prep");
+
   broadcast(opts.kind === "proactive" ? "proactive_notice" : "user_message", {
     conversationId: opts.conversationId,
     content: opts.content,
@@ -666,25 +767,22 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     void touchStreak(opts.conversationId);
   }
 
-  const pendingContinuation = await convex.query(api.pendingContinuations.get, {
-    conversationId: opts.conversationId,
-  });
-
   // Set by spawn_agent when a sub-agent paused for user action. The post-loop
   // logic uses this to skip the placeholder-reply fallback so the user doesn't
   // receive a useless message after the sub-agent already sent its own.
   let dispatcherSilent = false;
   let ackSent = false;
 
+  // One fetch feeds both the prompt's history block and the voice profile.
+  // `messages.list` is newest-first; this turn's own inbound row is filtered
+  // out by turnId (it may or may not have landed yet — see above), leaving the
+  // preceding turns, which get flipped back to chronological order.
+  const conversationHistory = priorMessages.filter((m) => m.turnId !== turnId);
   const history =
     opts.kind === "proactive"
       ? []
-      : await convex.query(api.messages.recent, {
-          conversationId: opts.conversationId,
-          limit: 10,
-        });
+      : conversationHistory.slice(0, HISTORY_TURNS).reverse();
   const historyBlock = history
-    .slice(0, -1)
     .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
     .join("\n");
 
@@ -692,24 +790,9 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     ? `RESUME_TASK="${pendingContinuation.resumeTask.replace(/"/g, '\\"')}", INTEGRATIONS=[${pendingContinuation.integrations.join(", ")}], asked ${Math.round((Date.now() - pendingContinuation.askedAt) / 1000)}s ago by agent ${pendingContinuation.pausedByAgentId ?? "?"}`
     : "(none)";
 
-  // Ground the turn in the user's real state (time, contract, live check-ins,
-  // streak, relevant memories) instead of hoping the model calls the right
-  // tools, and adapt the voice to how this specific person texts. Both are
-  // best-effort — a failure costs grounding or tone, never the reply — and they
-  // run concurrently so this stays one round-trip, not two.
-  const [situation, voiceProfile] = await Promise.all([
-    buildSituation({
-      conversationId: opts.conversationId,
-      userText: opts.content,
-    }).catch((err) => {
-      console.warn("[situation] build failed", err);
-      return "(unavailable this turn — use recall / list_automations / get_daily_contract)";
-    }),
-    buildVoiceProfile(opts.conversationId).catch((err) => {
-      console.warn("[voice] profile build failed", err);
-      return "  (unavailable this turn — use the default voice)";
-    }),
-  ]);
+  // Adapt the voice to how this specific person texts. Pure computation over
+  // the rows already fetched above, so it costs nothing beyond the one query.
+  const voiceProfile = voiceProfileFromMessages(conversationHistory);
 
   // Situation-matched reference exchanges, rotated by turn id so the model sees
   // range across turns instead of parroting one line into the ground. Pure
@@ -719,7 +802,9 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     seed: turnId,
   });
 
-  const systemPrompt = INTERACTION_SYSTEM.replace(
+  // Static, byte-identical every turn — that is what makes it cacheable.
+  const systemPrompt = INTERACTION_SYSTEM;
+  const liveState = LIVE_STATE_TEMPLATE.replace(
     "{{INTEGRATIONS}}",
     integrations.join(", ") || "(no integrations configured yet)",
   )
@@ -731,20 +816,21 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
   const userText = opts.mediaError
     ? `[user sent images but they couldn't be downloaded: ${opts.mediaError}]\n${opts.content}`
     : opts.content;
-  const promptText =
+  const turnText =
     opts.kind === "proactive"
       ? `Standalone proactive notice. Write a concise user-facing iMessage from this notice only. Do not research, spawn agents, or continue any prior conversation.\n\n${userText}`
       : historyBlock
         ? `Prior turns:\n${historyBlock}\n\nCurrent message:\n${userText}`
         : userText;
+  const promptText = `${liveState}\n\n${turnText}`;
 
   const tag = opts.turnTag ?? turnId.slice(-6);
   const log = (msg: string) => console.log(`[turn ${tag}] ${msg}`);
 
-  const turnStart = Date.now();
   // Snapshot runtime for this top-level turn so same-turn set_runtime/set_model
   // changes do not split the dispatcher and any spawned execution agent.
   const runtimeConfig = await getRuntimeConfig();
+  timer.lap("config");
   const directRuntimeSwitch =
     opts.kind === "proactive" ? null : resolveDirectRuntimeSwitch(opts.content);
   if (directRuntimeSwitch) {
@@ -771,7 +857,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     return reply;
   }
 
-  if (opts.kind !== "proactive" && asksForIntegrationInventory(opts.content, history.slice(0, -1))) {
+  if (opts.kind !== "proactive" && asksForIntegrationInventory(opts.content, history)) {
     const reply = await integrationInventoryReply(composioUserId);
     log("integration inventory answered deterministically");
     broadcast("assistant_message", {
@@ -849,6 +935,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
           imageStorageIds: inboundImageStorageIds,
           fetchBytes: fetchStoredBytes,
         });
+  timer.lap("prompt");
   if (promptBuild.imageError) {
     log(`image fetch fallback: ${promptBuild.imageError}`);
   }
@@ -1090,6 +1177,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
       await new Promise((r) => setTimeout(r, delayMs));
     }
   }
+  timer.lap("model");
   if (result) {
     reply = result.text;
     usage = result.usage;
@@ -1124,26 +1212,32 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     log(
       `cost: in/out ${usage.inputTokens}/${usage.outputTokens}, cache r/w ${usage.cacheReadTokens}/${usage.cacheCreationTokens}, $${usage.costUsd.toFixed(4)}`,
     );
-    await convex.mutation(api.usageRecords.record, {
-      source: "dispatcher",
-      conversationId: opts.conversationId,
-      turnId,
-      runtime: runtimeConfig.runtime,
-      billingMode: runtimeConfig.billingMode,
-      model: usage.model,
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
-      cacheReadTokens: usage.cacheReadTokens,
-      cacheCreationTokens: usage.cacheCreationTokens,
-      costUsd: usage.costUsd,
-      durationMs: Date.now() - turnStart,
-    });
+    // Accounting, not part of the answer — the user shouldn't wait on a Convex
+    // round-trip that only feeds the usage dashboard.
+    void convex
+      .mutation(api.usageRecords.record, {
+        source: "dispatcher",
+        conversationId: opts.conversationId,
+        turnId,
+        runtime: runtimeConfig.runtime,
+        billingMode: runtimeConfig.billingMode,
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheCreationTokens: usage.cacheCreationTokens,
+        costUsd: usage.costUsd,
+        durationMs: Date.now() - turnStart,
+      })
+      .catch((err) => console.error("[interaction] usage record failed", err));
   }
 
+  timer.lap("usage");
   broadcast("assistant_message", {
     conversationId: opts.conversationId,
     content: reply,
   });
+  log(`timing: total=${Date.now() - turnStart}ms | ${timer.format()}`);
 
   if (opts.persistAssistantReply) {
     await convex.mutation(api.messages.send, {
