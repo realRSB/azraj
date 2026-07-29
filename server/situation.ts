@@ -2,6 +2,7 @@ import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { embed, embeddingsAvailable } from "./embeddings.js";
 import { describeUserNow } from "./timezone-config.js";
+import { localParts } from "./weekly/schedule.js";
 
 // Situational awareness for the dispatcher.
 //
@@ -35,8 +36,12 @@ function partOfDay(hour: number): string {
 async function resolveNow(): Promise<{ line: string; isoDate: string | null }> {
   try {
     const now = await describeUserNow();
-    const hour = Number.parseInt(now.hourMinute.split(":")[0] ?? "0", 10);
-    const part = partOfDay(Number.isFinite(hour) ? hour : 0);
+    // `hourMinute` is a localized 12-hour string ("7:37 PM"), so reading its
+    // leading number gave 7 for 7pm and labelled every afternoon and evening
+    // "morning" — while the system prompt tells the model to use this to judge
+    // whether it's too late to start something. localParts is timezone-aware,
+    // h23, and unit-tested (test/weekly-schedule.test.ts).
+    const part = partOfDay(localParts(new Date(), now.timezone).hour);
     return { line: `${now.now} (${part}, ${now.timezone})`, isoDate: now.isoDate };
   } catch {
     return { line: "(unavailable)", isoDate: null };
