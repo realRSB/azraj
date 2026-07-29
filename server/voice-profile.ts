@@ -31,6 +31,9 @@ import { convex } from "./convex-client.js";
 // nothing rather than guessing from two messages.
 const MIN_MESSAGES = 4;
 const SAMPLE_SIZE = 40;
+// How many recent messages to pull when measuring style. Exported so a caller
+// that fetches history for its own reasons can fetch enough for both uses.
+export const VOICE_HISTORY_LIMIT = 120;
 
 // Slang we're willing to echo back if the user uses it first. Deliberately a
 // closed list: mirroring arbitrary tokens is how you end up repeating a typo or
@@ -168,34 +171,47 @@ function describe(s: StyleSignals): string[] {
 }
 
 /**
- * Build the `{{VOICE_PROFILE}}` block for a conversation. Best-effort: any
- * failure degrades to the default voice rather than blocking the turn.
+ * Build the voice-profile block from message rows the caller already has.
+ *
+ * Split out from `buildVoiceProfile` so a turn that has already fetched recent
+ * messages for other reasons doesn't pay for a second round-trip to fetch the
+ * same rows again. Pure computation — no I/O, no failure mode.
+ */
+export function voiceProfileFromMessages(
+  rows: Array<{ role?: string; content?: string }>,
+): string {
+  const userTexts = (rows ?? [])
+    .filter((r) => r.role === "user" && typeof r.content === "string")
+    .map((r) => r.content as string)
+    .slice(0, SAMPLE_SIZE);
+
+  if (userTexts.length < MIN_MESSAGES) {
+    return "  (not enough history yet — use the default voice and watch how they text)";
+  }
+
+  const signals = analyze(userTexts);
+  const notes = describe(signals);
+  if (!notes.length) {
+    return "  (nothing distinctive yet — default voice is fine)";
+  }
+  return [
+    `  Learned from their last ${signals.sampled} messages:`,
+    ...notes.map((l) => `  - ${l}`),
+  ].join("\n");
+}
+
+/**
+ * Build the voice-profile block for a conversation, fetching its messages.
+ * Best-effort: any failure degrades to the default voice rather than blocking
+ * the turn.
  */
 export async function buildVoiceProfile(conversationId: string): Promise<string> {
   try {
     const rows = (await convex.query(api.messages.list, {
       conversationId,
-      limit: 120,
+      limit: VOICE_HISTORY_LIMIT,
     })) as Array<{ role?: string; content?: string }>;
-
-    const userTexts = (rows ?? [])
-      .filter((r) => r.role === "user" && typeof r.content === "string")
-      .map((r) => r.content as string)
-      .slice(0, SAMPLE_SIZE);
-
-    if (userTexts.length < MIN_MESSAGES) {
-      return "  (not enough history yet — use the default voice and watch how they text)";
-    }
-
-    const signals = analyze(userTexts);
-    const notes = describe(signals);
-    if (!notes.length) {
-      return "  (nothing distinctive yet — default voice is fine)";
-    }
-    return [
-      `  Learned from their last ${signals.sampled} messages:`,
-      ...notes.map((l) => `  - ${l}`),
-    ].join("\n");
+    return voiceProfileFromMessages(rows);
   } catch {
     return "  (unavailable this turn — use the default voice)";
   }
