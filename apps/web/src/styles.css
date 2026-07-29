@@ -158,6 +158,8 @@ button {
   z-index: 2;
   display: grid;
   min-height: 100svh;
+  max-width: 86rem;
+  margin-inline: auto;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: center;
   gap: clamp(1.25rem, 4vw, 4rem);
@@ -1540,6 +1542,59 @@ button {
 .story-step span,
 .story-step h3 {
   margin: 0;
+}
+
+.site-footer {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  gap: 1rem;
+  max-width: 78rem;
+  margin: 0 auto;
+  padding: clamp(2.5rem, 6vh, 3.5rem) clamp(1rem, 4vw, 4rem) clamp(2.5rem, 5vh, 3rem);
+  border-block-start: 1px solid var(--line);
+}
+
+.site-footer-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.site-footer-brand {
+  cursor: pointer;
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 900;
+}
+
+.site-footer-links {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.site-footer-links a {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.site-footer-copy {
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+@media (max-width: 42rem) {
+  .site-footer-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 
 @media (hover: hover) and (pointer: fine) {
