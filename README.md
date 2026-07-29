@@ -73,3 +73,6 @@ We learned how to put the web app in the cloud using the railway so that it runs
 We faced an issue with the agent not running at all times. During the start of the build, Azraj didn’t run constantly because it was running on the local ngrok servers which would shutdown if the terminal died. To solve this issue, we thought of using a Virtual Machine running on the cloud, Railway, allowing Azraj to run at all times given we have Claude or Codex tokens. 
 Making Azraj sound like someone you would actually talk to rather than a generic chatbot
 Facing the phone connectivity failures with sendblue
+
+## ai usage
+ai was used to scan the codebase and review security fixes. It was also used to brainstorm and change over the forked "boop" codebase into base for azraj.
