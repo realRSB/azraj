@@ -10,6 +10,7 @@ import { createAutomationTools } from "./automation-tools.js";
 import { createDraftDecisionTools } from "./draft-tools.js";
 import { createSelfTools } from "./self-tools.js";
 import { createListTools } from "./list-tools.js";
+import { createNudgeTools } from "./nudge/tools.js";
 import { createExpenseTools } from "./expense-tools.js";
 import {
   getRuntimeConfig,
@@ -949,6 +950,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     ...createSelfTools({ composioUserId }),
     ...createListTools(opts.conversationId),
     ...createExpenseTools(opts.conversationId),
+    ...createNudgeTools(opts.conversationId),
     defineRuntimeTool(
       "boop-pending",
       "clear_pending_continuation",
@@ -1133,6 +1135,7 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
                 "mcp__boop-list__remove_list_item",
                 "mcp__boop-expenses__log_expense",
                 "mcp__boop-expenses__expense_summary",
+                "mcp__boop-nudge__set_checkin_preference",
               ],
         // Belt-and-suspenders: even with bypassPermissions the SDK can leak
         // its built-ins if we only whitelist. Explicitly block them on the

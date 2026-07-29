@@ -49,7 +49,10 @@ function stripMarkdown(text: string): string {
 // Dispatcher replies are already cleaned at production time, but this path also
 // carries streak cards, automation notices, and proactive pings that never go
 // through it — so normalize here too rather than assuming a clean caller.
-function stripTells(text: string): string {
+// Exported so callers that also PERSIST what they sent (the nudge engine mirrors
+// each nudge into the messages table) can clean the text once and store exactly
+// what the user receives, instead of letting history drift from delivery.
+export function stripTells(text: string): string {
   return normalizeDashes(stripMarkdown(text));
 }
 

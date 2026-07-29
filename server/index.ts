@@ -37,6 +37,8 @@ import { startImageCleanup } from "./images/clean.js";
 import { createStreakRouter } from "./streak-routes.js";
 import { startWeeklyLoop } from "./weekly/service.js";
 import { createWeeklyRouter } from "./weekly-routes.js";
+import { startNudgeLoop } from "./nudge/service.js";
+import { createNudgeRouter } from "./nudge-routes.js";
 import { isPublicServerRequest, isTrustedLocalRequest } from "./local-access.js";
 import { applySecurityHeaders } from "./http-security.js";
 import { buildCorsOrigins } from "./cors-origins.js";
@@ -73,6 +75,11 @@ async function main() {
   // Cheap gate each tick; the LLM generation + sends only fire when a drop or
   // mid-week insight is actually due for a user.
   startWeeklyLoop();
+  // Proactive nudges: unprompted texts when the user's own state says they're
+  // slipping (opt-in via BOOP_NUDGE_ENABLED). Each tick is a cheap read; the
+  // generation + send only happen when a real situation clears the annoyance
+  // rules in server/nudge/policy.ts.
+  startNudgeLoop();
   // No-op when a paid embedding key is set; otherwise downloads/loads the
   // local BGE-large model in the background so the first user-facing
   // recall() doesn't pay the model-load cost.
@@ -186,6 +193,7 @@ async function main() {
   app.use("/changelog", createChangelogRouter());
   app.use("/streak", createStreakRouter());
   app.use("/weekly", createWeeklyRouter());
+  app.use("/nudge", createNudgeRouter());
   const publicWebMounted = mountPublicWeb(app);
 
   app.post("/agents/:id/cancel", (req, res) => {

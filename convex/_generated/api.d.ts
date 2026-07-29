@@ -23,6 +23,7 @@ import type * as listItems from "../listItems.js";
 import type * as memoryEvents from "../memoryEvents.js";
 import type * as memoryRecords from "../memoryRecords.js";
 import type * as messages from "../messages.js";
+import type * as nudges from "../nudges.js";
 import type * as pendingContinuations from "../pendingContinuations.js";
 import type * as publicUsers from "../publicUsers.js";
 import type * as sendblueDedup from "../sendblueDedup.js";
@@ -54,6 +55,7 @@ declare const fullApi: ApiFromModules<{
   memoryEvents: typeof memoryEvents;
   memoryRecords: typeof memoryRecords;
   messages: typeof messages;
+  nudges: typeof nudges;
   pendingContinuations: typeof pendingContinuations;
   publicUsers: typeof publicUsers;
   sendblueDedup: typeof sendblueDedup;

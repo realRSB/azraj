@@ -10,6 +10,7 @@ const sourceV = v.union(
   v.literal("consolidation-judge"),
   v.literal("proactive"),
   v.literal("weekly"),
+  v.literal("nudge"),
 );
 
 export const record = mutation({
