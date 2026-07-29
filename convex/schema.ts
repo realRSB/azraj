@@ -167,6 +167,7 @@ export default defineSchema({
       v.literal("consolidation-judge"),
       v.literal("proactive"),
       v.literal("weekly"),
+      v.literal("nudge"),
     ),
     conversationId: v.optional(v.string()),
     turnId: v.optional(v.string()),
@@ -466,4 +467,44 @@ export default defineSchema({
   })
     .index("by_expense_id", ["expenseId"])
     .index("by_conversation_spent_at", ["conversationId", "spentAt"]),
+
+  // Bookkeeping for the proactive nudge engine (server/nudge/) — the unprompted
+  // "hey, that thing hasn't moved" texts. One row per conversation. This table
+  // holds ONLY the anti-annoyance accounting; what's worth saying is derived
+  // fresh each tick from dailyPlans / streaks / messages, never cached here.
+  //
+  // Field semantics live with the pure logic in server/nudge/types.ts. Absent
+  // optionals mean "hasn't happened yet" and map to null on the server side.
+  nudgeState: defineTable({
+    conversationId: v.string(),
+    // "off" is the user's escape hatch and is respected before anything else.
+    intensity: v.union(
+      v.literal("off"),
+      v.literal("chill"),
+      v.literal("normal"),
+      v.literal("hard"),
+    ),
+    // Nudges are only allowed inside [quietStartHour, quietEndHour) local time.
+    // A window where start > end wraps midnight.
+    quietStartHour: v.number(),
+    quietEndHour: v.number(),
+
+    lastNudgeAt: v.optional(v.number()),
+    lastNudgeKind: v.optional(v.string()),
+    // True while we're still waiting to learn whether the last nudge landed.
+    awaitingReply: v.boolean(),
+
+    // Daily counter, scoped to a local date (YYYY-MM-DD in the user's zone) so
+    // the cap resets at their midnight rather than the server's.
+    countDate: v.optional(v.string()),
+    countToday: v.number(),
+
+    consecutiveIgnored: v.number(),
+    snoozeUntil: v.optional(v.number()),
+
+    // NudgeKind -> last send time, so one situation can't be raised twice in a
+    // day. Bounded by the fixed number of kinds (6), so it stays a small map.
+    kindLastSent: v.record(v.string(), v.number()),
+    updatedAt: v.number(),
+  }).index("by_conversation", ["conversationId"]),
 });
