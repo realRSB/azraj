@@ -49,6 +49,41 @@ export function createClaudeMcpServer(
   });
 }
 
+// Startup work the Claude Code CLI does for interactive users that a headless
+// server pays for and never benefits from. All of these are telemetry, update,
+// or prompt-the-human concerns — none can change what the model is asked or what
+// it's allowed to do, so they're safe for execution agents as well as the
+// dispatcher. Worth ~110ms of CLI startup per turn (measured: init 851ms ->
+// 725ms, medians of 9).
+//
+// Deliberately NOT included: DISABLE_CLAUDE_MDS / BUNDLED_SKILLS /
+// POLICY_SKILLS / AUTO_MEMORY. Those were measured too and made startup
+// slightly *worse* than this set alone (750ms), so they'd trade real
+// execution-agent capability for nothing.
+const HEADLESS_CLI_ENV: Record<string, string> = {
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+  DISABLE_AUTOUPDATER: "1",
+  DISABLE_TELEMETRY: "1",
+  CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL: "1",
+  CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY: "1",
+  CLAUDE_CODE_DISABLE_CRON: "1",
+  // Claude Code makes an extra LLM call at the end of every turn to build a
+  // `post_turn_summary` system message — IDE status text ("starting work",
+  // "review_ready"). Nothing here reads it: the loop below handles only
+  // assistant/user/result and drops system messages unread. It's generated
+  // AFTER the reply text is complete, so the user was waiting on a round-trip
+  // whose output is discarded. A falsy value switches the classifier from an
+  // LLM call to a heuristic — the message still arrives, so the stream shape is
+  // unchanged, but the tail drops from 2.0-5.0s to ~25-80ms.
+  CLAUDE_CODE_CLASSIFIER_SUMMARY: "false",
+};
+
+// A real env value always wins, so any of these can be switched back on from
+// .env.local or Railway without a code change.
+function headlessEnv(): NodeJS.ProcessEnv {
+  return { ...HEADLESS_CLI_ENV, ...process.env };
+}
+
 export async function runClaudeAgent(request: RuntimeRunRequest): Promise<RuntimeRunResult> {
   if (shouldUseAnthropicApiTransport()) {
     return runAnthropicApiAgent(request);
@@ -83,7 +118,7 @@ export async function runClaudeAgent(request: RuntimeRunRequest): Promise<Runtim
       mcpServers,
       allowedTools: request.allowedTools,
       disallowedTools: request.disallowedTools,
-      env: process.env,
+      env: headlessEnv(),
       // The dispatcher is forbidden from touching the world directly — every
       // built-in is already in its disallowedTools list. Dropping them from the
       // base tool set means the CLI never sends those schemas to the model at
