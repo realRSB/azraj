@@ -437,4 +437,33 @@ export default defineSchema({
     onboardingSentAt: v.optional(v.number()),
     updatedAt: v.number(),
   }).index("by_conversation", ["conversationId"]),
+
+  // Lightweight running list ("add milk to my list", "what's on my list").
+  // Not time-triggered like reminders and not a durable-fact store like
+  // memoryRecords - just a plain checklist scoped to the conversation.
+  listItems: defineTable({
+    itemId: v.string(),
+    conversationId: v.string(),
+    text: v.string(),
+    status: v.union(v.literal("open"), v.literal("done")),
+    createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+  })
+    .index("by_item_id", ["itemId"])
+    .index("by_conversation_status", ["conversationId", "status"]),
+
+  // Personal spend log ("spent $12 on lunch"). Separate from usageRecords,
+  // which tracks Azraj's own AI API costs, not the user's money.
+  expenses: defineTable({
+    expenseId: v.string(),
+    conversationId: v.string(),
+    amountCents: v.number(),
+    currency: v.string(),
+    category: v.optional(v.string()),
+    note: v.optional(v.string()),
+    spentAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_expense_id", ["expenseId"])
+    .index("by_conversation_spent_at", ["conversationId", "spentAt"]),
 });

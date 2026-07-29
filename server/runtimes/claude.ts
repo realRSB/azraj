@@ -4,27 +4,23 @@ import {
   tool,
   type McpServerConfig,
   type McpSdkServerConfigWithInstance,
+  type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { RuntimeRunRequest, RuntimeRunResult, RuntimeTool } from "./types.js";
 import { aggregateUsageFromResult, EMPTY_USAGE } from "../usage.js";
 import { runAnthropicApiAgent, shouldUseAnthropicApiTransport } from "./anthropic-api.js";
 
-type ClaudePrompt =
-  | string
-  | AsyncIterable<{
-      type: "user";
-      session_id: string;
-      message: { role: "user"; content: unknown };
-      parent_tool_use_id: null;
-    }>;
-
-function toClaudePrompt(prompt: RuntimeRunRequest["prompt"]): ClaudePrompt {
+function toClaudePrompt(
+  prompt: RuntimeRunRequest["prompt"],
+): string | AsyncIterable<SDKUserMessage> {
   if (typeof prompt === "string") return prompt;
-  return (async function* () {
+  return (async function* (): AsyncGenerator<SDKUserMessage> {
     yield {
-      type: "user" as const,
-      session_id: "",
-      message: { role: "user" as const, content: prompt },
+      type: "user",
+      message: {
+        role: "user",
+        content: prompt as SDKUserMessage["message"]["content"],
+      },
       parent_tool_use_id: null,
     };
   })();
@@ -88,6 +84,15 @@ export async function runClaudeAgent(request: RuntimeRunRequest): Promise<Runtim
       allowedTools: request.allowedTools,
       disallowedTools: request.disallowedTools,
       env: process.env,
+      // The dispatcher is forbidden from touching the world directly — every
+      // built-in is already in its disallowedTools list. Dropping them from the
+      // base tool set means the CLI never sends those schemas to the model at
+      // all, which cuts a large block of tokens off every turn and keeps the
+      // tool count low enough that the CLI stops deferring schemas behind
+      // ToolSearch (an extra model round-trip before each real tool call).
+      // Execution agents genuinely need WebSearch/WebFetch/Bash, so they keep
+      // the full preset.
+      ...(request.mode === "dispatcher" ? { tools: [] } : {}),
       ...(request.mode === "execution" ? { settingSources: ["project"] as const } : {}),
       permissionMode: "bypassPermissions",
       abortController: request.abortController,

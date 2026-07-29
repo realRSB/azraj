@@ -18,6 +18,8 @@ import type * as dashboard from "../dashboard.js";
 import type * as demo from "../demo.js";
 import type * as demoMode from "../demoMode.js";
 import type * as drafts from "../drafts.js";
+import type * as expenses from "../expenses.js";
+import type * as listItems from "../listItems.js";
 import type * as memoryEvents from "../memoryEvents.js";
 import type * as memoryRecords from "../memoryRecords.js";
 import type * as messages from "../messages.js";
@@ -47,6 +49,8 @@ declare const fullApi: ApiFromModules<{
   demo: typeof demo;
   demoMode: typeof demoMode;
   drafts: typeof drafts;
+  expenses: typeof expenses;
+  listItems: typeof listItems;
   memoryEvents: typeof memoryEvents;
   memoryRecords: typeof memoryRecords;
   messages: typeof messages;
