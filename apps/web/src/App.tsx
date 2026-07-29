@@ -850,7 +850,11 @@ export function App() {
       ) : (
         <>
           <LandingHero onConnect={() => openConnect("join")} />
-          <StorySection currentStory={currentStory} activeStep={activeStep} />
+          <StorySection
+            currentStory={currentStory}
+            activeStep={activeStep}
+            onStepSelect={setActiveStep}
+          />
           <SiteFooter onNavigateHome={() => navigate("home")} />
         </>
       )}
@@ -2155,9 +2159,11 @@ function EmptyConsumerState({ label }: { label: string }) {
 function StorySection({
   currentStory,
   activeStep,
+  onStepSelect,
 }: {
   currentStory: (typeof storySteps)[number];
   activeStep: number;
+  onStepSelect: (index: number) => void;
 }) {
   return (
     <section id="how" className="story" aria-label="What Azraj does">
@@ -2179,8 +2185,10 @@ function StorySection({
           <ol className="story-progress">
             {storySteps.map((step, index) => (
               <li key={step.label} data-active={index === activeStep}>
-                <span>{`0${index + 1}`}</span>
-                {step.label}
+                <button type="button" onClick={() => onStepSelect(index)}>
+                  <span>{`0${index + 1}`}</span>
+                  {step.label}
+                </button>
               </li>
             ))}
           </ol>

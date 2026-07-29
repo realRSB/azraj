@@ -1497,7 +1497,11 @@ button {
   list-style: none;
 }
 
-.story-progress li {
+.story-progress button {
+  all: unset;
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: rgba(255, 248, 239, 0.45);
@@ -1505,13 +1509,15 @@ button {
   color: var(--ink-soft);
   font-size: 0.92rem;
   font-weight: 850;
+  font-family: inherit;
+  cursor: pointer;
   transition:
     background-color 180ms ease,
     color 180ms ease,
     transform 180ms ease;
 }
 
-.story-progress li[data-active="true"] {
+.story-progress li[data-active="true"] button {
   background: var(--ink);
   color: var(--paper);
   transform: translateX(-0.25rem);
@@ -1630,7 +1636,8 @@ button {
 .connect-open:active,
 .connect-close:active,
 .connect-submit:active,
-.connect-dashboard:active {
+.connect-dashboard:active,
+.story-progress button:active {
   transform: translateY(0);
 }
 
@@ -1643,7 +1650,8 @@ button {
 .connect-open:focus-visible,
 .connect-close:focus-visible,
 .connect-submit:focus-visible,
-.connect-dashboard:focus-visible {
+.connect-dashboard:focus-visible,
+.story-progress button:focus-visible {
   outline: 3px solid var(--ink);
   outline-offset: 4px;
 }
