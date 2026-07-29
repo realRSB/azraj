@@ -78,12 +78,16 @@ Integrations available: ${integrationHint}`,
         // conversation. Any existing same-named automation is removed first, so
         // re-creating with the same name updates in place instead of piling up
         // duplicate reminders (the root cause of "stop texting me about this").
-        const allForConvo = (
-          await convex.query(api.automations.list, { enabledOnly: false })
-        ).filter((a) => a.conversationId === conversationId);
+        const allForConvo = await convex.query(api.automations.list, {
+          enabledOnly: false,
+          conversationId,
+        });
         const duplicates = allForConvo.filter((a) => isSameAutomationName(a.name, args.name));
         for (const dup of duplicates) {
-          await convex.mutation(api.automations.remove, { automationId: dup.automationId });
+          await convex.mutation(api.automations.remove, {
+            automationId: dup.automationId,
+            conversationId,
+          });
         }
         const automationId = randomId("auto");
         const nextRunAt = nextRunFor(args.schedule, timezone) ?? undefined;
@@ -128,10 +132,10 @@ Integrations available: ${integrationHint}`,
       "List all automations for this conversation.",
       { enabledOnly: z.boolean().optional().default(false) },
       async (args) => {
-        const all = await convex.query(api.automations.list, {
+        const mine = await convex.query(api.automations.list, {
           enabledOnly: args.enabledOnly,
+          conversationId,
         });
-        const mine = all.filter((a) => a.conversationId === conversationId);
         if (mine.length === 0) {
           return runtimeText("No automations.");
         }
@@ -149,7 +153,12 @@ Integrations available: ${integrationHint}`,
       "Enable or disable an automation by id.",
       { automationId: z.string(), enabled: z.boolean() },
       async (args) => {
-        const id = await convex.mutation(api.automations.setEnabled, args);
+        // conversationId is an ownership assertion, not a lookup key: another
+        // conversation's automation reports as not-found instead of flipping.
+        const id = await convex.mutation(api.automations.setEnabled, {
+          ...args,
+          conversationId,
+        });
         return runtimeText(id ? `Set ${args.automationId} enabled=${args.enabled}.` : "Not found.");
       },
     ),
@@ -160,7 +169,10 @@ Integrations available: ${integrationHint}`,
       "Permanently remove an automation.",
       { automationId: z.string() },
       async (args) => {
-        const id = await convex.mutation(api.automations.remove, args);
+        const id = await convex.mutation(api.automations.remove, {
+          ...args,
+          conversationId,
+        });
         return runtimeText(id ? `Deleted ${args.automationId}.` : "Not found.");
       },
     ),

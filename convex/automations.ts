@@ -30,28 +30,55 @@ export const create = mutation({
 
 async function readAutomations(
   ctx: QueryCtx,
-  enabledOnly: boolean | undefined,
-  demoOnly: boolean,
+  opts: { enabledOnly?: boolean; conversationId?: string; demoOnly: boolean },
 ) {
-  const rows = enabledOnly
-    ? await ctx.db
-        .query("automations")
-        .withIndex("by_enabled", (q) => q.eq("enabled", true))
-        .order("desc")
-        .take(DEMO_SCAN_LIMIT)
-    : await ctx.db.query("automations").order("desc").take(DEMO_SCAN_LIMIT);
-  return rows.filter((automation) => isDemoId(automation.automationId) === demoOnly);
+  const { conversationId } = opts;
+  const rows =
+    conversationId !== undefined
+      ? await ctx.db
+          .query("automations")
+          .withIndex("by_conversation", (q) => q.eq("conversationId", conversationId))
+          .order("desc")
+          .take(DEMO_SCAN_LIMIT)
+      : opts.enabledOnly
+        ? await ctx.db
+            .query("automations")
+            .withIndex("by_enabled", (q) => q.eq("enabled", true))
+            .order("desc")
+            .take(DEMO_SCAN_LIMIT)
+        : await ctx.db.query("automations").order("desc").take(DEMO_SCAN_LIMIT);
+  return rows.filter(
+    (automation) =>
+      isDemoId(automation.automationId) === opts.demoOnly &&
+      // Only needed on the by_conversation path; the by_enabled index already
+      // expressed this predicate on the other one.
+      (!opts.enabledOnly || automation.enabled),
+  );
 }
 
+// `conversationId` scopes the result to one conversation's automations. Pass it
+// for anything a user or the dispatcher sees: without it this returns EVERY
+// conversation's automations, which leaked one user's check-ins into another's
+// prompt (see server/situation.ts). Omit it only for genuinely global callers —
+// the scheduler tick in server/automations.ts, which must consider all of them.
 export const list = query({
-  args: { enabledOnly: v.optional(v.boolean()) },
-  handler: async (ctx, args) => readAutomations(ctx, args.enabledOnly, false),
+  args: { enabledOnly: v.optional(v.boolean()), conversationId: v.optional(v.string()) },
+  handler: async (ctx, args) =>
+    readAutomations(ctx, {
+      enabledOnly: args.enabledOnly,
+      conversationId: args.conversationId,
+      demoOnly: false,
+    }),
 });
 
 export const listForDashboard = query({
-  args: { enabledOnly: v.optional(v.boolean()) },
+  args: { enabledOnly: v.optional(v.boolean()), conversationId: v.optional(v.string()) },
   handler: async (ctx, args) => {
-    return readAutomations(ctx, args.enabledOnly, await isDemoModeEnabled(ctx));
+    return readAutomations(ctx, {
+      enabledOnly: args.enabledOnly,
+      conversationId: args.conversationId,
+      demoOnly: await isDemoModeEnabled(ctx),
+    });
   },
 });
 
@@ -77,27 +104,46 @@ export const getForDashboard = query({
   },
 });
 
+// Optional ownership guard for the two mutations that act on a bare id.
+//
+// Passing `conversationId` asserts "this automation must belong to that
+// conversation", and a mismatch is reported as not-found rather than acted on.
+// The dispatcher's tools pass it so a turn in one conversation can never toggle
+// or delete another's check-in. It stays optional because the local debug
+// dashboard is an operator view across all conversations and legitimately has no
+// single conversation to scope to.
+function ownedBy(
+  auto: { conversationId?: string },
+  conversationId: string | undefined,
+): boolean {
+  return conversationId === undefined || auto.conversationId === conversationId;
+}
+
 export const setEnabled = mutation({
-  args: { automationId: v.string(), enabled: v.boolean() },
+  args: {
+    automationId: v.string(),
+    enabled: v.boolean(),
+    conversationId: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const auto = await ctx.db
       .query("automations")
       .withIndex("by_automation_id", (q) => q.eq("automationId", args.automationId))
       .unique();
-    if (!auto) return null;
+    if (!auto || !ownedBy(auto, args.conversationId)) return null;
     await ctx.db.patch(auto._id, { enabled: args.enabled });
     return auto._id;
   },
 });
 
 export const remove = mutation({
-  args: { automationId: v.string() },
+  args: { automationId: v.string(), conversationId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     const auto = await ctx.db
       .query("automations")
       .withIndex("by_automation_id", (q) => q.eq("automationId", args.automationId))
       .unique();
-    if (!auto) return null;
+    if (!auto || !ownedBy(auto, args.conversationId)) return null;
     await ctx.db.delete(auto._id);
     return auto._id;
   },

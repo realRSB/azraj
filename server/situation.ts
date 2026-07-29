@@ -114,19 +114,18 @@ async function contractBlock(
 
 // Active check-ins. Injected so the model can SEE what already exists before it
 // creates another one — the direct fix for duplicate reminders about one task.
-async function automationsBlock(): Promise<string> {
+async function automationsBlock(conversationId: string): Promise<string> {
   try {
-    const rows = (await convex.query(api.automations.list, {})) as Array<{
-      name?: string;
-      schedule?: string;
-      task?: string;
-      enabled?: boolean;
-    }>;
-    const active = (rows ?? []).filter((r) => r.enabled !== false);
+    // Scoped to THIS conversation. Without the filter this listed every
+    // conversation's automations, so Azraj offered to cancel check-ins the
+    // person it was talking to had never created — and the system prompt tells
+    // it to treat this list as authoritative before creating another.
+    const rows = await convex.query(api.automations.list, { conversationId });
+    const active = rows.filter((r) => r.enabled);
     if (!active.length) return "    (none active)";
     return active
       .slice(0, MAX_AUTOMATIONS)
-      .map((r) => `    - "${r.name ?? "(unnamed)"}" [${r.schedule ?? "?"}]`)
+      .map((r) => `    - "${r.name}" [${r.schedule}]`)
       .join("\n");
   } catch {
     return "(unavailable)";
@@ -180,7 +179,7 @@ export async function buildSituation(opts: {
   const [streak, contract, automations, memories] = await Promise.all([
     streakLine(opts.conversationId),
     contractBlock(opts.conversationId, now.isoDate),
-    automationsBlock(),
+    automationsBlock(opts.conversationId),
     memoriesBlock(opts.conversationId, opts.userText),
   ]);
 
