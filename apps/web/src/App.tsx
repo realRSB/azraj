@@ -228,24 +228,24 @@ type IntegrationToolSummary = {
 
 const storySteps = [
   {
-    label: "morning",
-    title: "plan the day before the day plans you",
-    body: "send azraj the messy version of your goals. it turns them into a short list you can actually finish.",
+    label: "Morning",
+    title: "Plan the day before the day plans you",
+    body: "Send Azraj the messy version of your goals. It turns them into a short list you can actually finish.",
   },
   {
-    label: "midday",
-    title: "prove you started",
-    body: "azraj checks in when motivation usually dips. not a lecture, just the next move and a little pressure.",
+    label: "Midday",
+    title: "Prove you started",
+    body: "Azraj checks in when motivation usually dips. Not a lecture, just the next move and a little pressure.",
   },
   {
-    label: "night",
-    title: "own the scoreboard",
-    body: "finish with an honest review: what got done, what slipped, and what changes tomorrow.",
+    label: "Night",
+    title: "Own the scoreboard",
+    body: "Finish with an honest review: what got done, what slipped, and what changes tomorrow.",
   },
   {
-    label: "weekly",
-    title: "build a bigger mindset",
-    body: "each week, azraj gives you a mindset, person to study, and readings to bring back into the conversation.",
+    label: "Weekly",
+    title: "Build a bigger mindset",
+    body: "Each week, Azraj gives you a mindset, person to study, and readings to bring back into the conversation.",
   },
 ];
 
@@ -808,9 +808,9 @@ export function App() {
         <header className="site-nav" aria-label="Azraj navigation">
           <nav className="nav-links" aria-label="Page sections">
             <button type="button" onClick={() => navigate("home")}>
-              home
+              Home
             </button>
-            <a href="#how">how it works</a>
+            <a href="#how">How It Works</a>
           </nav>
           <button className="nav-brand" type="button" onClick={() => navigate("home")} aria-label="Azraj home">
             azraj
@@ -819,19 +819,19 @@ export function App() {
             {sessionToken ? (
               <>
                 <button type="button" onClick={() => navigate("dashboard")}>
-                  dashboard
+                  Dashboard
                 </button>
                 <button type="button" className="nav-auth-primary" onClick={signOut}>
-                  sign out
+                  Sign Out
                 </button>
               </>
             ) : (
               <>
                 <button type="button" onClick={() => openConnect("signin")}>
-                  sign in
+                  Sign In
                 </button>
                 <button type="button" className="nav-auth-primary" onClick={() => openConnect("join")}>
-                  sign up
+                  Sign Up
                 </button>
               </>
             )}
@@ -851,6 +851,7 @@ export function App() {
         <>
           <LandingHero onConnect={() => openConnect("join")} />
           <StorySection currentStory={currentStory} activeStep={activeStep} />
+          <SiteFooter onNavigateHome={() => navigate("home")} />
         </>
       )}
 
@@ -889,17 +890,17 @@ function LandingHero({ onConnect }: { onConnect: () => void }) {
   return (
     <section id="hero" className="hero" aria-labelledby="hero-title">
       <div className="hero-copy">
-        <p className="eyebrow">ai accountability over imessage</p>
-        <h1 id="hero-title">your ai accountability coach</h1>
+        <p className="eyebrow">AI accountability over iMessage</p>
+        <h1 id="hero-title">Your AI accountability coach</h1>
         <p className="subcopy">
-          azraj turns daily goals into action, checks your progress, and makes the
+          Azraj turns daily goals into action, checks your progress, and makes the
           night review impossible to dodge.
         </p>
       </div>
 
       <figure className="message-stack" aria-label="Azraj message example">
         <div className="message message-in">
-          <span>azraj · 8:30a</span>
+          <span>Azraj · 8:30a</span>
           gm. what are the 3 wins that make today count?
         </div>
         <div className="message message-out">
@@ -915,7 +916,7 @@ function LandingHero({ onConnect }: { onConnect: () => void }) {
           <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
           Start Connecting
         </button>
-        <p>text azraj. get your dashboard link. watch your data fill up.</p>
+        <p>Text Azraj. Get your dashboard link. Watch your data fill up.</p>
       </div>
     </section>
   );
@@ -985,7 +986,7 @@ function ConnectModal({
           x
         </button>
         <h2 id="connect-title">
-          {step === "connected" && "you're connected"}
+          {step === "connected" && "You're connected"}
           {step === "code" && "Enter Code"}
           {step === "signin" && "Sign in to Azraj"}
           {step === "join" && "Welcome to Azraj"}
@@ -997,7 +998,7 @@ function ConnectModal({
           {step === "code" &&
             `We sent a 6-digit code to ${maskPhone(verifiedPhone || phone)}`}
           {step === "connected" &&
-            "send this message to start your accountability thread, then open your dashboard anytime."}
+            "Send this message to start your accountability thread, then open your dashboard anytime."}
         </p>
 
         {step === "join" && (
@@ -1010,7 +1011,7 @@ function ConnectModal({
             >
               <span>Your Azraj number</span>
               <strong>{azrajNumber}</strong>
-              <small>{copied === "number" ? "copied" : "tap to copy"}</small>
+              <small>{copied === "number" ? "Copied" : "Tap to copy"}</small>
             </button>
 
             <button
@@ -1019,8 +1020,8 @@ function ConnectModal({
               onClick={() => onCopy("message", starterMessage)}
               disabled={!starterMessage}
             >
-              <strong>{starterMessage || "creating your secure join code..."}</strong>
-              <small>{copied === "message" ? "copied" : "tap to copy message"}</small>
+              <strong>{starterMessage || "Creating your secure join code..."}</strong>
+              <small>{copied === "message" ? "Copied" : "Tap to copy message"}</small>
             </button>
 
             <a
@@ -1036,7 +1037,7 @@ function ConnectModal({
         {step === "signin" && (
           <form className="connect-form" onSubmit={onStart}>
             <label>
-              <span>phone number</span>
+              <span>Phone number</span>
               <input
                 value={phone}
                 onChange={(event) => onPhoneChange(event.target.value)}
@@ -1046,7 +1047,7 @@ function ConnectModal({
               />
             </label>
             <button className="connect-submit" type="submit" disabled={busy}>
-              {busy ? "sending code..." : "send code"}
+              {busy ? "Sending code..." : "Send code"}
             </button>
           </form>
         )}
@@ -1054,7 +1055,7 @@ function ConnectModal({
         {step === "code" && (
           <form className="connect-form" onSubmit={onVerify}>
             <label>
-              <span className="sr-only">verification code</span>
+              <span className="sr-only">Verification code</span>
               <input
                 className="connect-code-input"
                 value={code}
@@ -1069,7 +1070,7 @@ function ConnectModal({
               {otpCountdown > 0 ? `Resend code in ${otpCountdown}s` : "Resend code"}
             </p>
             <button className="connect-submit connect-verify" type="submit" disabled={busy || code.length !== 6}>
-              {busy ? "checking..." : "Verify"}
+              {busy ? "Checking..." : "Verify"}
             </button>
           </form>
         )}
@@ -1084,7 +1085,7 @@ function ConnectModal({
             >
               <span>Your Azraj number</span>
               <strong>{azrajNumber}</strong>
-              <small>{copied === "number" ? "copied" : "tap to copy"}</small>
+              <small>{copied === "number" ? "Copied" : "Tap to copy"}</small>
             </button>
 
             <button
@@ -1093,7 +1094,7 @@ function ConnectModal({
               onClick={() => onCopy("message", connectedMessage)}
             >
               <strong>{connectedMessage}</strong>
-              <small>{copied === "message" ? "copied" : "tap to copy message"}</small>
+              <small>{copied === "message" ? "Copied" : "Tap to copy message"}</small>
             </button>
 
             <a className={`connect-open ${!azrajNumberReady ? "is-disabled" : ""}`} href={azrajNumberReady ? connectedSmsHref : undefined}>
@@ -1102,7 +1103,7 @@ function ConnectModal({
             </a>
 
             <button className="connect-dashboard" type="button" onClick={onDashboard}>
-              open dashboard
+              Open dashboard
             </button>
           </>
         )}
@@ -1139,9 +1140,9 @@ function UserDashboard({
     return (
       <section className="public-dashboard empty-dashboard">
         <div className="dashboard-empty-card">
-          <p>dashboard</p>
-          <h1>text azraj first</h1>
-          <span>send one iMessage and Azraj will reply with your private dashboard link.</span>
+          <p>Dashboard</p>
+          <h1>Text Azraj first</h1>
+          <span>Send one iMessage and Azraj will reply with your private dashboard link.</span>
           <button type="button" className="start-button" onClick={onConnect}>
             <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
             Start Connecting
@@ -1155,9 +1156,9 @@ function UserDashboard({
     return (
       <section className="public-dashboard empty-dashboard">
         <div className="dashboard-empty-card">
-          <p>dashboard</p>
-          <h1>loading your accountability data</h1>
-          <span>pulling messages, memory, automations, and usage from convex.</span>
+          <p>Dashboard</p>
+          <h1>Loading your accountability data</h1>
+          <span>Pulling messages, memory, automations, and usage from Convex.</span>
         </div>
       </section>
     );
@@ -1167,12 +1168,12 @@ function UserDashboard({
     return (
       <section className="public-dashboard empty-dashboard">
         <div className="dashboard-empty-card">
-          <p>session expired</p>
-          <h1>sign in again</h1>
-          <span>your dashboard session expired, but your Azraj data is still there.</span>
+          <p>Session expired</p>
+          <h1>Sign in again</h1>
+          <span>Your dashboard session expired, but your Azraj data is still there.</span>
           <button type="button" className="start-button" onClick={onConnect}>
             <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
-            sign in
+            Sign In
           </button>
         </div>
       </section>
@@ -2161,7 +2162,7 @@ function StorySection({
   return (
     <section id="how" className="story" aria-label="What Azraj does">
       <div className="story-sticky">
-        <p className="story-kicker">what azraj does</p>
+        <p className="story-kicker">What Azraj does</p>
         <div className="story-grid">
           <div className="story-copy">
             <p>{currentStory.label}</p>
@@ -2171,7 +2172,7 @@ function StorySection({
           <div className="story-phone" aria-hidden="true">
             <div className="story-phone-head">
               <span />
-              <p>azraj</p>
+              <p>Azraj</p>
             </div>
             <div className="story-phone-message">{currentStory.body}</div>
           </div>
@@ -2195,5 +2196,23 @@ function StorySection({
         ))}
       </div>
     </section>
+  );
+}
+
+function SiteFooter({ onNavigateHome }: { onNavigateHome: () => void }) {
+  return (
+    <footer className="site-footer">
+      <div className="site-footer-row">
+        <button className="site-footer-brand" type="button" onClick={onNavigateHome}>
+          azraj
+        </button>
+        <nav className="site-footer-links" aria-label="Footer">
+          <a href="#how">How It Works</a>
+        </nav>
+      </div>
+      <p className="site-footer-copy">
+        &copy; {new Date().getFullYear()} Azraj. AI accountability over iMessage.
+      </p>
+    </footer>
   );
 }
