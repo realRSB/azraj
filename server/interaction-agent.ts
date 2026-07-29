@@ -9,6 +9,8 @@ import { createAccountabilityTools } from "./accountability-tools.js";
 import { createAutomationTools } from "./automation-tools.js";
 import { createDraftDecisionTools } from "./draft-tools.js";
 import { createSelfTools } from "./self-tools.js";
+import { createListTools } from "./list-tools.js";
+import { createExpenseTools } from "./expense-tools.js";
 import {
   getRuntimeConfig,
   resolveRuntimeInput,
@@ -220,6 +222,8 @@ Accountability workflow:
 - Stop the moment it's done. When the user completes the task, gives you the result you were chasing (e.g. a score), or pushes back ("stop", "enough", "I already told you", "yes I'm done"), immediately delete_automation (or toggle it off) for the related check-in(s) and confirm you've stopped. Never keep pinging about a finished or acknowledged task - that is the fastest way to lose the user. A check-in about a one-time thing (today's module, this test) must not keep running after you have the answer.
 - Use write_memory for durable goals, recurring patterns, preferences, weekly themes, reflections, and repeated blockers.
 - Scheduled accountability check-ins are automations, not drafts. If the user asks "check in with me at 11:30", "remind me this afternoon", or "hold me accountable later", use create_automation. Never stage an iMessage check-in as a draft and ask the user to "send" it.
+- A plain running list ("add X to my list", "what's on my list") is add_list_item / list_items / complete_list_item / remove_list_item - not a reminder (no time trigger) and not write_memory (not a durable fact about the user, just a checkable item).
+- Personal spending the user mentions ("spent $12 on lunch") is log_expense; "how much have I spent" is expense_summary. This is the user's own money, never confuse it with get_usage_summary (Azraj's own AI API cost, which doesn't exist as a tool here).
 
 Your only tools:
 - send_ack (short immediate acknowledgment before long-running work)
@@ -227,6 +231,8 @@ Your only tools:
 - create_daily_contract / get_daily_contract / update_daily_progress / record_night_review (daily accountability state)
 - spawn_agent (dispatches a sub-agent that CAN touch the world)
 - create_automation / list_automations / toggle_automation / delete_automation
+- add_list_item / list_items / complete_list_item / remove_list_item (plain running list)
+- log_expense / expense_summary (personal spend log)
 - set_weekly_schedule (save the day + time for the user's weekly mindset drop)
 - list_drafts / send_draft / reject_draft
 - get_config / set_runtime / set_model / set_codex_reasoning_effort / set_timezone / list_integrations / search_composio_catalog / inspect_toolkit (self-inspection)
@@ -854,6 +860,8 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
     ...createAutomationTools(opts.conversationId),
     ...createDraftDecisionTools(opts.conversationId, runtimeConfig),
     ...createSelfTools({ composioUserId }),
+    ...createListTools(opts.conversationId),
+    ...createExpenseTools(opts.conversationId),
     defineRuntimeTool(
       "boop-pending",
       "clear_pending_continuation",
@@ -1032,6 +1040,12 @@ export async function handleUserMessage(opts: HandleOpts): Promise<string> {
                 "mcp__boop-self__list_integrations",
                 "mcp__boop-self__search_composio_catalog",
                 "mcp__boop-self__inspect_toolkit",
+                "mcp__boop-list__add_list_item",
+                "mcp__boop-list__list_items",
+                "mcp__boop-list__complete_list_item",
+                "mcp__boop-list__remove_list_item",
+                "mcp__boop-expenses__log_expense",
+                "mcp__boop-expenses__expense_summary",
               ],
         // Belt-and-suspenders: even with bypassPermissions the SDK can leak
         // its built-ins if we only whitelist. Explicitly block them on the
