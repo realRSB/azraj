@@ -51,6 +51,15 @@ npm run desktop:dev
 Open the website [Dashboard link](azraj.tech)
 Currently it might not work because it only works on verified contacts, but that will be fixed soon because it costs $100/month for the subscription
 
+## screenshots and demo link
+Demo: [watch the Azraj walkthrough](https://drive.google.com/file/d/1CqKARPhTX1pyyzSjcG348psmlQbBcOZP/view?usp=sharing)
+
+Landing page:
+![Azraj landing page](assets/azraj-landing.png)
+
+Dashboard:
+![Azraj dashboard](assets/azraj-dashboard.png)
+
 ## tech stack
 Both the frontend and backend are written in typescript. HTTP server runs on node.js + express. Public website and local debug dashboard utilize React + Vite. Vanta.js used for cloud effects on the website. The database runs on Convex which records memory, messages, agents, and automations. Agent runtime can either run on Claude SDK or Codex. Messages are sent through sendblue to verified phone numbers, as of now. Integrations ran through sendblue(200+ integrations). Ngrok runs a local tunnel during dev. Railway pushed to main, allowing constant usage via a cloud virtual machine.
 
