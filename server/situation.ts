@@ -60,13 +60,6 @@ async function streakLine(conversationId: string): Promise<string | null> {
   }
 }
 
-interface PlanObjective {
-  text?: string;
-  title?: string;
-  status?: string;
-  done?: boolean;
-}
-
 // Today's contract: what they committed to and how far they've got. This is
 // what stops Azraj re-asking "what are you working on?" when it already knows,
 // and lets it chase the SPECIFIC thing that is still open.
@@ -76,37 +69,39 @@ async function contractBlock(
 ): Promise<string> {
   if (!localDate) return "(unavailable)";
   try {
-    const plan = (await convex.query(api.accountability.getDailyPlan, {
+    // No cast. `convex` is a typed ConvexHttpClient, so the query's real shape —
+    // `{ plan, objectives }`, the dailyPlans row plus its dailyObjectives —
+    // comes from the generated API and breaks the build if that query changes.
+    // A hand-written cast here previously claimed a flat shape with `date`,
+    // `progressNotes` and `nightReview` fields that have never existed, so the
+    // progress and review lines below were silently dead and Azraj could ask
+    // for a night review it had already recorded.
+    const result = await convex.query(api.accountability.getDailyPlan, {
       conversationId,
       localDate,
-    })) as
-      | {
-          date?: string;
-          objectives?: PlanObjective[];
-          progressNotes?: string[];
-          nightReview?: unknown;
-        }
-      | null
-      | undefined;
-    if (!plan) return "(no plan set for today — if they share goals, create one)";
+    });
+    if (!result) return "(no plan set for today — if they share goals, create one)";
+    const { plan, objectives } = result;
 
     const lines: string[] = [];
-    const objectives = Array.isArray(plan.objectives) ? plan.objectives : [];
     if (objectives.length) {
+      // The stored status ("pending"/"started"/"done"/"slipped") beats a
+      // done/open binary: something they started and dropped, and something
+      // they've written off as slipped, are different coaching problems than
+      // something they never picked up. Matches get_daily_contract's format.
       for (const o of objectives.slice(0, MAX_OBJECTIVES)) {
-        const text = o.text ?? o.title ?? "(untitled)";
-        const done = o.done === true || o.status === "done" || o.status === "completed";
-        lines.push(`    - [${done ? "done" : "open"}] ${text}`);
+        lines.push(`    - [${o.status}] ${o.text}`);
       }
     } else {
       lines.push("    (no objectives listed)");
     }
-    const notes = Array.isArray(plan.progressNotes) ? plan.progressNotes : [];
-    if (notes.length) {
-      lines.push(`    progress so far: ${notes.slice(-2).join(" | ")}`);
+    // Singular and overwritten by each update_daily_progress call, so this is
+    // the latest note rather than a history.
+    if (plan.progressNote) lines.push(`    progress so far: ${plan.progressNote}`);
+    if (plan.status === "reviewed") {
+      lines.push("    night review: already recorded today");
     }
-    if (plan.nightReview) lines.push("    night review: already recorded today");
-    return `${plan.date ?? "today"}\n${lines.join("\n")}`;
+    return `${plan.localDate}\n${lines.join("\n")}`;
   } catch {
     return "(unavailable)";
   }
