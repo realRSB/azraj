@@ -83,7 +83,19 @@ export async function runClaudeAgent(request: RuntimeRunRequest): Promise<Runtim
       mcpServers,
       allowedTools: request.allowedTools,
       disallowedTools: request.disallowedTools,
-      env: process.env,
+      env: {
+        ...process.env,
+        // Claude Code makes an extra LLM call after every turn to build a
+        // `post_turn_summary` — IDE status text ("starting work",
+        // "review_ready") that a headless server never reads. It's generated
+        // AFTER the reply text is already complete, so the user sits waiting on
+        // a round-trip whose output is discarded: measured 2.0-5.0s of a turn
+        // whose actual answer was ready at ~1.8s. A falsy value switches the
+        // classifier from an LLM call to a heuristic, so the message still
+        // arrives (the SDK's stream expects it) but costs ~25-80ms instead.
+        // An explicit env value still wins, so it can be turned back on.
+        CLAUDE_CODE_CLASSIFIER_SUMMARY: process.env.CLAUDE_CODE_CLASSIFIER_SUMMARY ?? "false",
+      },
       // The dispatcher is forbidden from touching the world directly — every
       // built-in is already in its disallowedTools list. Dropping them from the
       // base tool set means the CLI never sends those schemas to the model at
