@@ -75,8 +75,10 @@ async function ensureAccountabilityAutomations(
   times: { midday?: string; evening?: string; night?: string },
 ) {
   const tzInfo = await describeUserNow();
-  const all = await convex.query(api.automations.list, { enabledOnly: false });
-  const mine = all.filter((automation) => automation.conversationId === conversationId);
+  const mine = await convex.query(api.automations.list, {
+    enabledOnly: false,
+    conversationId,
+  });
   const created: Array<{ name: string; schedule: string; nextRunAt?: number }> = [];
   const skipped: string[] = [];
   const invalid: Array<{ name: string; time: string }> = [];

@@ -2,6 +2,7 @@ import { api } from "../convex/_generated/api.js";
 import { convex } from "./convex-client.js";
 import { embed, embeddingsAvailable } from "./embeddings.js";
 import { describeUserNow } from "./timezone-config.js";
+import { localParts } from "./weekly/schedule.js";
 
 // Situational awareness for the dispatcher.
 //
@@ -35,8 +36,12 @@ function partOfDay(hour: number): string {
 async function resolveNow(): Promise<{ line: string; isoDate: string | null }> {
   try {
     const now = await describeUserNow();
-    const hour = Number.parseInt(now.hourMinute.split(":")[0] ?? "0", 10);
-    const part = partOfDay(Number.isFinite(hour) ? hour : 0);
+    // `hourMinute` is a localized 12-hour string ("7:37 PM"), so reading its
+    // leading number gave 7 for 7pm and labelled every afternoon and evening
+    // "morning" — while the system prompt tells the model to use this to judge
+    // whether it's too late to start something. localParts is timezone-aware,
+    // h23, and unit-tested (test/weekly-schedule.test.ts).
+    const part = partOfDay(localParts(new Date(), now.timezone).hour);
     return { line: `${now.now} (${part}, ${now.timezone})`, isoDate: now.isoDate };
   } catch {
     return { line: "(unavailable)", isoDate: null };
@@ -60,13 +65,6 @@ async function streakLine(conversationId: string): Promise<string | null> {
   }
 }
 
-interface PlanObjective {
-  text?: string;
-  title?: string;
-  status?: string;
-  done?: boolean;
-}
-
 // Today's contract: what they committed to and how far they've got. This is
 // what stops Azraj re-asking "what are you working on?" when it already knows,
 // and lets it chase the SPECIFIC thing that is still open.
@@ -76,37 +74,39 @@ async function contractBlock(
 ): Promise<string> {
   if (!localDate) return "(unavailable)";
   try {
-    const plan = (await convex.query(api.accountability.getDailyPlan, {
+    // No cast. `convex` is a typed ConvexHttpClient, so the query's real shape —
+    // `{ plan, objectives }`, the dailyPlans row plus its dailyObjectives —
+    // comes from the generated API and breaks the build if that query changes.
+    // A hand-written cast here previously claimed a flat shape with `date`,
+    // `progressNotes` and `nightReview` fields that have never existed, so the
+    // progress and review lines below were silently dead and Azraj could ask
+    // for a night review it had already recorded.
+    const result = await convex.query(api.accountability.getDailyPlan, {
       conversationId,
       localDate,
-    })) as
-      | {
-          date?: string;
-          objectives?: PlanObjective[];
-          progressNotes?: string[];
-          nightReview?: unknown;
-        }
-      | null
-      | undefined;
-    if (!plan) return "(no plan set for today — if they share goals, create one)";
+    });
+    if (!result) return "(no plan set for today — if they share goals, create one)";
+    const { plan, objectives } = result;
 
     const lines: string[] = [];
-    const objectives = Array.isArray(plan.objectives) ? plan.objectives : [];
     if (objectives.length) {
+      // The stored status ("pending"/"started"/"done"/"slipped") beats a
+      // done/open binary: something they started and dropped, and something
+      // they've written off as slipped, are different coaching problems than
+      // something they never picked up. Matches get_daily_contract's format.
       for (const o of objectives.slice(0, MAX_OBJECTIVES)) {
-        const text = o.text ?? o.title ?? "(untitled)";
-        const done = o.done === true || o.status === "done" || o.status === "completed";
-        lines.push(`    - [${done ? "done" : "open"}] ${text}`);
+        lines.push(`    - [${o.status}] ${o.text}`);
       }
     } else {
       lines.push("    (no objectives listed)");
     }
-    const notes = Array.isArray(plan.progressNotes) ? plan.progressNotes : [];
-    if (notes.length) {
-      lines.push(`    progress so far: ${notes.slice(-2).join(" | ")}`);
+    // Singular and overwritten by each update_daily_progress call, so this is
+    // the latest note rather than a history.
+    if (plan.progressNote) lines.push(`    progress so far: ${plan.progressNote}`);
+    if (plan.status === "reviewed") {
+      lines.push("    night review: already recorded today");
     }
-    if (plan.nightReview) lines.push("    night review: already recorded today");
-    return `${plan.date ?? "today"}\n${lines.join("\n")}`;
+    return `${plan.localDate}\n${lines.join("\n")}`;
   } catch {
     return "(unavailable)";
   }
@@ -114,19 +114,18 @@ async function contractBlock(
 
 // Active check-ins. Injected so the model can SEE what already exists before it
 // creates another one — the direct fix for duplicate reminders about one task.
-async function automationsBlock(): Promise<string> {
+async function automationsBlock(conversationId: string): Promise<string> {
   try {
-    const rows = (await convex.query(api.automations.list, {})) as Array<{
-      name?: string;
-      schedule?: string;
-      task?: string;
-      enabled?: boolean;
-    }>;
-    const active = (rows ?? []).filter((r) => r.enabled !== false);
+    // Scoped to THIS conversation. Without the filter this listed every
+    // conversation's automations, so Azraj offered to cancel check-ins the
+    // person it was talking to had never created — and the system prompt tells
+    // it to treat this list as authoritative before creating another.
+    const rows = await convex.query(api.automations.list, { conversationId });
+    const active = rows.filter((r) => r.enabled);
     if (!active.length) return "    (none active)";
     return active
       .slice(0, MAX_AUTOMATIONS)
-      .map((r) => `    - "${r.name ?? "(unnamed)"}" [${r.schedule ?? "?"}]`)
+      .map((r) => `    - "${r.name}" [${r.schedule}]`)
       .join("\n");
   } catch {
     return "(unavailable)";
@@ -180,7 +179,7 @@ export async function buildSituation(opts: {
   const [streak, contract, automations, memories] = await Promise.all([
     streakLine(opts.conversationId),
     contractBlock(opts.conversationId, now.isoDate),
-    automationsBlock(),
+    automationsBlock(opts.conversationId),
     memoriesBlock(opts.conversationId, opts.userText),
   ]);
 
