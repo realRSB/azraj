@@ -51,7 +51,7 @@ function mountPublicWeb(app: express.Express) {
   if (!existsSync(indexHtml)) return false;
 
   app.use(express.static(webDist, { index: false, fallthrough: true }));
-  app.get(["/", "/dashboard"], (_req, res) => {
+  app.get(["/", "/dashboard", "/demo"], (_req, res) => {
     res.sendFile(indexHtml);
   });
   return true;
