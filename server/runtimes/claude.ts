@@ -17,6 +17,7 @@ function toClaudePrompt(
   return (async function* (): AsyncGenerator<SDKUserMessage> {
     yield {
       type: "user",
+      session_id: "azraj-runtime",
       message: {
         role: "user",
         content: prompt as SDKUserMessage["message"]["content"],

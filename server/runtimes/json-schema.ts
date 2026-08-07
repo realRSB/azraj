@@ -46,13 +46,13 @@ function zodToJsonSchema(schema: z.ZodTypeAny): { schema: JsonSchema; optional: 
     return {
       schema: withDescription(schema, {
         type: "string",
-        enum: Object.values(schema._def.entries),
+        enum: [...schema.options],
       }),
       optional: false,
     };
   }
   if (schema instanceof z.ZodArray) {
-    const item = zodToJsonSchema(schema._def.element as z.ZodTypeAny);
+    const item = zodToJsonSchema(schema._def.type as z.ZodTypeAny);
     return {
       schema: withDescription(schema, { type: "array", items: item.schema }),
       optional: false,
