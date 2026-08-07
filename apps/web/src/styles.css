@@ -283,6 +283,22 @@ button {
     box-shadow 160ms ease;
 }
 
+.demo-button {
+  display: inline-flex;
+  min-height: 2.7rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 248, 239, 0.66);
+  border-radius: 999px;
+  background: rgba(255, 248, 239, 0.38);
+  color: var(--ink);
+  padding-inline: 1rem;
+  font-size: 0.92rem;
+  font-weight: 900;
+  backdrop-filter: blur(18px);
+  box-shadow: 0 0.8rem 2.4rem rgba(0, 0, 0, 0.08);
+}
+
 .imessage-logo {
   display: block;
   width: 1.55rem;
@@ -1088,10 +1104,24 @@ button {
 }
 
 .dashboard-topbar h2 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   margin: 0.18rem 0 0;
   color: var(--ink);
   font-size: 0.92rem;
   font-weight: 850;
+}
+
+.demo-data-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.12);
+  padding: 0.14rem 0.45rem;
+  color: #7dd3fc;
+  font-size: 0.65rem;
+  font-weight: 800;
 }
 
 .dashboard-topbar-actions {
@@ -1779,6 +1809,10 @@ button {
   .message,
   .start-button {
     width: 100%;
+  }
+
+  .demo-button {
+    justify-self: center;
   }
 
   .story {

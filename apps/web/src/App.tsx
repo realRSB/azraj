@@ -46,7 +46,7 @@ declare global {
 const DEFAULT_AZRAJ_NUMBER = import.meta.env.VITE_AZRAJ_PHONE_NUMBER || "+17862139361";
 const SESSION_KEY = "azraj.publicSessionToken";
 
-type Page = "home" | "dashboard";
+type Page = "home" | "dashboard" | "demo";
 type ConnectStep = "join" | "signin" | "code" | "connected";
 type DashboardView =
   | "dashboard"
@@ -265,6 +265,250 @@ const COMMON_TIMEZONES: Array<{ value: string; label: string }> = [
   { value: "Australia/Sydney", label: "Australia/Sydney" },
   { value: "UTC", label: "UTC" },
 ];
+
+const DEMO_DASHBOARD: PublicDashboard = normalizePublicDashboard({
+  user: {
+    phoneE164: "+15555556510",
+    displayName: "Demo user",
+    timezone: "America/New_York",
+    onboardingStatus: "connected",
+  },
+  conversationIds: ["demo-conversation"],
+  metrics: {
+    messages: 78,
+    memories: {
+      total: 10,
+      shortTerm: 1,
+      longTerm: 8,
+      permanent: 1,
+    },
+    agents: {
+      total: 4,
+      running: 0,
+      completed: 4,
+      failed: 0,
+      cancelled: 0,
+    },
+    automations: {
+      total: 3,
+      enabled: 3,
+      runs: 12,
+    },
+    accountability: {
+      plans: 4,
+      reviewed: 3,
+      objectives: 13,
+      done: 10,
+      slipped: 3,
+      activeStatus: "in_progress",
+    },
+    usage: {
+      totalCost: 1.77,
+      inputTokens: 548000,
+      outputTokens: 6000,
+      totalTokens: 554000,
+    },
+    dailyBuckets: [
+      {
+        day: "07-25",
+        costUsd: 0.18,
+        inputTokens: 62000,
+        outputTokens: 1100,
+        messages: 14,
+        agentsSpawned: 1,
+        agentsCompleted: 1,
+        automationRuns: 2,
+      },
+      {
+        day: "07-27",
+        costUsd: 0.68,
+        inputTokens: 178000,
+        outputTokens: 2100,
+        messages: 23,
+        agentsSpawned: 1,
+        agentsCompleted: 1,
+        automationRuns: 4,
+      },
+      {
+        day: "07-28",
+        costUsd: 0.86,
+        inputTokens: 241000,
+        outputTokens: 2200,
+        messages: 28,
+        agentsSpawned: 2,
+        agentsCompleted: 2,
+        automationRuns: 5,
+      },
+      {
+        day: "07-29",
+        costUsd: 0.05,
+        inputTokens: 67000,
+        outputTokens: 600,
+        messages: 13,
+        automationRuns: 1,
+      },
+    ],
+  },
+  recentMessages: [
+    {
+      _id: "demo-msg-1",
+      role: "assistant",
+      content: "gm. what are the 3 wins that make today count?",
+      createdAt: Date.parse("2026-07-29T08:30:00-04:00"),
+    },
+    {
+      _id: "demo-msg-2",
+      role: "user",
+      content: "physics set, website polish, apply to 2 internships.",
+      createdAt: Date.parse("2026-07-29T08:34:00-04:00"),
+    },
+    {
+      _id: "demo-msg-3",
+      role: "assistant",
+      content:
+        "bet. physics first. 45 min deep work, then send proof. no wandering into email until the block is done.",
+      createdAt: Date.parse("2026-07-29T08:35:00-04:00"),
+    },
+    {
+      _id: "demo-msg-4",
+      role: "assistant",
+      content: "11:30 check. did you start, yes or no?",
+      createdAt: Date.parse("2026-07-29T11:30:00-04:00"),
+    },
+    {
+      _id: "demo-msg-5",
+      role: "user",
+      content: "yes, physics is done. website still needs screenshots.",
+      createdAt: Date.parse("2026-07-29T11:37:00-04:00"),
+    },
+  ],
+  memories: [
+    {
+      _id: "demo-memory-1",
+      memoryId: "demo-memory-1",
+      content: "User wants Azraj to sound direct, lowercase, motivating, and not corporate.",
+      tier: "permanent",
+      segment: "preference",
+      importance: 0.96,
+      accessCount: 14,
+      decayRate: 0,
+      createdAt: Date.parse("2026-07-20T10:00:00-04:00"),
+    },
+    {
+      _id: "demo-memory-2",
+      memoryId: "demo-memory-2",
+      content: "Current focus areas are physics, Azraj product work, internships, and staying consistent.",
+      tier: "long",
+      segment: "project",
+      importance: 0.88,
+      accessCount: 9,
+      decayRate: 0.04,
+      createdAt: Date.parse("2026-07-24T14:00:00-04:00"),
+    },
+    {
+      _id: "demo-memory-3",
+      memoryId: "demo-memory-3",
+      content: "Afternoon check-ins work best when they ask for proof and the next concrete move.",
+      tier: "long",
+      segment: "context",
+      importance: 0.78,
+      accessCount: 6,
+      decayRate: 0.06,
+      createdAt: Date.parse("2026-07-26T16:30:00-04:00"),
+    },
+    {
+      _id: "demo-memory-4",
+      memoryId: "demo-memory-4",
+      content: "User tends to delay setup-heavy work unless the first step is tiny and explicit.",
+      tier: "long",
+      segment: "knowledge",
+      importance: 0.72,
+      accessCount: 5,
+      decayRate: 0.07,
+      createdAt: Date.parse("2026-07-27T21:00:00-04:00"),
+    },
+  ],
+  automations: [
+    {
+      _id: "demo-auto-1",
+      name: "morning plan",
+      schedule: "every day at 8:30 AM",
+      timezone: "America/New_York",
+      enabled: true,
+      nextRunAt: Date.parse("2026-07-30T08:30:00-04:00"),
+    },
+    {
+      _id: "demo-auto-2",
+      name: "midday proof check",
+      schedule: "every day at 11:30 AM",
+      timezone: "America/New_York",
+      enabled: true,
+      nextRunAt: Date.parse("2026-07-30T11:30:00-04:00"),
+    },
+    {
+      _id: "demo-auto-3",
+      name: "night review",
+      schedule: "every day at 9:30 PM",
+      timezone: "America/New_York",
+      enabled: true,
+      nextRunAt: Date.parse("2026-07-29T21:30:00-04:00"),
+    },
+  ],
+  accountability: {
+    activePlan: {
+      _id: "demo-plan-today",
+      localDate: "2026-07-29",
+      timezone: "America/New_York",
+      status: "in_progress",
+      journal: "Today is about turning ideas into shipped proof. No vague productivity.",
+      energy: "medium",
+      mood: "locked in",
+      blockers: "context switching and setup friction",
+      definitionOfDone: "Physics done, website demo public, one internship application submitted.",
+      progressNote: "Physics finished. Website demo in polish. Internship block still pending.",
+      updatedAt: Date.parse("2026-07-29T12:00:00-04:00"),
+      objectives: [
+        {
+          _id: "demo-objective-1",
+          text: "finish physics problem set before lunch",
+          status: "done",
+          proof: "submitted",
+        },
+        {
+          _id: "demo-objective-2",
+          text: "ship a public Azraj demo reviewers can open without setup",
+          status: "started",
+          notes: "README and /demo page in progress",
+        },
+        {
+          _id: "demo-objective-3",
+          text: "apply to 2 internships after the website block",
+          status: "pending",
+        },
+      ],
+    },
+    recentPlans: [
+      {
+        _id: "demo-plan-yesterday",
+        localDate: "2026-07-28",
+        timezone: "America/New_York",
+        status: "reviewed",
+        journal: "Good execution once the first block started.",
+        completedSummary: "Merged dashboard polish and fixed signup flow.",
+        slippedSummary: "Did not finish internship work.",
+        lesson: "Start with the most annoying task before opening product polish.",
+        tomorrowAdjustment: "Physics first, then Azraj, then internships.",
+        updatedAt: Date.parse("2026-07-28T22:00:00-04:00"),
+        reviewedAt: Date.parse("2026-07-28T22:00:00-04:00"),
+        objectives: [
+          { _id: "demo-old-objective-1", text: "dashboard polish", status: "done" },
+          { _id: "demo-old-objective-2", text: "signup flow test", status: "done" },
+          { _id: "demo-old-objective-3", text: "internship application", status: "slipped" },
+        ],
+      },
+    ],
+  },
+});
 
 type MemoryTierFilter = "all" | "short" | "long" | "permanent";
 type MemoryViewMode = "table" | "graph";
@@ -489,7 +733,11 @@ async function fetchPublicAuthConfig() {
 
 export function App() {
   const [page, setPage] = useState<Page>(() =>
-    window.location.pathname === "/dashboard" ? "dashboard" : "home",
+    window.location.pathname === "/demo"
+      ? "demo"
+      : window.location.pathname === "/dashboard"
+        ? "dashboard"
+        : "home",
   );
   const [sessionToken, setSessionToken] = useState<string | null>(getStoredSession);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -507,8 +755,9 @@ export function App() {
   const [copied, setCopied] = useState<"number" | "message" | null>(null);
   const [activeStep, setActiveStep] = useState(0);
   const [dashboard, setDashboard] = useState<PublicDashboard | null | undefined>(
-    sessionToken ? undefined : null,
+    page === "demo" ? DEMO_DASHBOARD : sessionToken ? undefined : null,
   );
+  const demoMode = page === "demo";
 
   useEffect(() => {
     let effect: { destroy: () => void } | undefined;
@@ -526,14 +775,18 @@ export function App() {
         return;
       }
 
-      effect = window.VANTA.CLOUDS({
-        el: "#azraj-clouds",
-        mouseControls: true,
-        touchControls: true,
-        gyroControls: false,
-        minHeight: 200.0,
-        minWidth: 200.0,
-      });
+      try {
+        effect = window.VANTA.CLOUDS({
+          el: "#azraj-clouds",
+          mouseControls: true,
+          touchControls: true,
+          gyroControls: false,
+          minHeight: 200.0,
+          minWidth: 200.0,
+        });
+      } catch {
+        effect = undefined;
+      }
     };
 
     bootVanta();
@@ -573,6 +826,11 @@ export function App() {
   }, [connectOpen]);
 
   useEffect(() => {
+    if (demoMode) {
+      setAzrajNumber(DEFAULT_AZRAJ_NUMBER);
+      return;
+    }
+
     let cancelled = false;
     fetchPublicAuthConfig()
       .then((result) => {
@@ -584,7 +842,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [demoMode]);
 
   useEffect(() => {
     if (!connectOpen || connectStep !== "join" || sessionToken) return;
@@ -662,6 +920,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (demoMode) {
+      setDashboard(DEMO_DASHBOARD);
+      return;
+    }
+
     if (!sessionToken) {
       setDashboard(null);
       return;
@@ -700,11 +963,15 @@ export function App() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [sessionToken]);
+  }, [demoMode, sessionToken]);
 
   function navigate(nextPage: Page) {
     setPage(nextPage);
-    window.history.pushState(null, "", nextPage === "dashboard" ? "/dashboard" : "/");
+    window.history.pushState(
+      null,
+      "",
+      nextPage === "dashboard" ? "/dashboard" : nextPage === "demo" ? "/demo" : "/",
+    );
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -801,16 +1068,19 @@ export function App() {
   }
 
   return (
-    <main className={`azraj-page ${page === "dashboard" ? "dashboard-page" : ""}`}>
+    <main className={`azraj-page ${page !== "home" ? "dashboard-page" : ""}`}>
       <div id="azraj-clouds" className="clouds" aria-hidden="true" />
 
-      {page !== "dashboard" && (
+      {page === "home" && (
         <header className="site-nav" aria-label="Azraj navigation">
           <nav className="nav-links" aria-label="Page sections">
             <button type="button" onClick={() => navigate("home")}>
               Home
             </button>
             <a href="#how">How It Works</a>
+            <button type="button" onClick={() => navigate("demo")}>
+              Demo
+            </button>
           </nav>
           <button className="nav-brand" type="button" onClick={() => navigate("home")} aria-label="Azraj home">
             azraj
@@ -846,10 +1116,20 @@ export function App() {
           azrajNumber={displayedAzrajNumber}
           onConnect={() => openConnect("join")}
           onSignOut={signOut}
+          demoMode={false}
+        />
+      ) : page === "demo" ? (
+        <UserDashboard
+          dashboard={DEMO_DASHBOARD}
+          sessionToken="demo-session"
+          azrajNumber={displayedAzrajNumber}
+          onConnect={() => openConnect("join")}
+          onSignOut={() => navigate("home")}
+          demoMode
         />
       ) : (
         <>
-          <LandingHero onConnect={() => openConnect("join")} />
+          <LandingHero onConnect={() => openConnect("join")} onDemo={() => navigate("demo")} />
           <StorySection
             currentStory={currentStory}
             activeStep={activeStep}
@@ -890,7 +1170,7 @@ export function App() {
   );
 }
 
-function LandingHero({ onConnect }: { onConnect: () => void }) {
+function LandingHero({ onConnect, onDemo }: { onConnect: () => void; onDemo: () => void }) {
   return (
     <section id="hero" className="hero" aria-labelledby="hero-title">
       <div className="hero-copy">
@@ -919,6 +1199,9 @@ function LandingHero({ onConnect }: { onConnect: () => void }) {
         <button className="start-button" type="button" onClick={onConnect}>
           <img className="imessage-logo" src={imessageLogo} alt="" aria-hidden="true" />
           Start Connecting
+        </button>
+        <button className="demo-button" type="button" onClick={onDemo}>
+          View Demo
         </button>
         <p>Text Azraj. Get your dashboard link. Watch your data fill up.</p>
       </div>
@@ -1133,12 +1416,14 @@ function UserDashboard({
   azrajNumber,
   onConnect,
   onSignOut,
+  demoMode,
 }: {
   dashboard: PublicDashboard | null | undefined;
   sessionToken: string | null;
   azrajNumber: string;
   onConnect: () => void;
   onSignOut: () => void;
+  demoMode: boolean;
 }) {
   if (!sessionToken) {
     return (
@@ -1191,6 +1476,7 @@ function UserDashboard({
         sessionToken={sessionToken}
         azrajNumber={azrajNumber}
         onSignOut={onSignOut}
+        demoMode={demoMode}
       />
     </section>
   );
@@ -1201,11 +1487,13 @@ function ConsumerDashboardShell({
   sessionToken,
   azrajNumber,
   onSignOut,
+  demoMode,
 }: {
   dashboard: PublicDashboard;
   sessionToken: string;
   azrajNumber: string;
   onSignOut: () => void;
+  demoMode: boolean;
 }) {
   const [view, setView] = useState<DashboardView>("dashboard");
   const metrics = useMemo(() => publicDashboardToDebugMetrics(dashboard), [dashboard]);
@@ -1286,7 +1574,10 @@ function ConsumerDashboardShell({
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/10 bg-[#18181b] px-5">
           <div>
             <div className="text-[11px] text-zinc-500">Azraj</div>
-            <h2 className="text-sm font-medium text-zinc-100">{currentView}</h2>
+            <h2 className="text-sm font-medium text-zinc-100">
+              {currentView}
+              {demoMode && <span className="demo-data-pill">demo data</span>}
+            </h2>
           </div>
           <button
             type="button"
@@ -1315,16 +1606,19 @@ function ConsumerDashboardShell({
             {view === "messages" && <MessagesView dashboard={dashboard} />}
             {view === "memory" && <MemoryView dashboard={dashboard} />}
             {view === "automations" && <AutomationsView dashboard={dashboard} />}
-            {view === "connections" && <ConnectionsView sessionToken={sessionToken} />}
+            {view === "connections" &&
+              (demoMode ? <DemoConnectionsView /> : <ConnectionsView sessionToken={sessionToken} />)}
             {view === "accountability" && <AccountabilityView dashboard={dashboard} />}
-            {view === "settings" && (
+            {view === "settings" && demoMode ? (
+              <DemoSettingsView dashboard={dashboard} azrajNumber={azrajNumber} onExitDemo={onSignOut} />
+            ) : view === "settings" ? (
               <SettingsView
                 dashboard={dashboard}
                 sessionToken={sessionToken}
                 azrajNumber={azrajNumber}
                 onSignOut={onSignOut}
               />
-            )}
+            ) : null}
           </div>
         </main>
       </div>
@@ -1836,6 +2130,94 @@ function ConnectionsView({ sessionToken }: { sessionToken: string }) {
   );
 }
 
+function DemoConnectionsView() {
+  const demoToolkits: IntegrationToolkit[] = [
+    {
+      slug: "googlecalendar",
+      displayName: "Google Calendar",
+      authMode: "managed",
+      hasAuthConfig: true,
+      logoUrl: null,
+      description: "Used to build the day around real meetings, classes, and deadlines.",
+      toolCount: 45,
+      connections: [
+        {
+          id: "demo-calendar",
+          status: "ACTIVE",
+          alias: "demo calendar",
+          accountLabel: "rajveer@example.com",
+          accountEmail: "rajveer@example.com",
+          accountName: "Rajveer",
+          accountAvatarUrl: null,
+          createdAt: "2026-07-29T12:00:00.000Z",
+        },
+      ],
+    },
+    {
+      slug: "gmail",
+      displayName: "Gmail",
+      authMode: "managed",
+      hasAuthConfig: true,
+      logoUrl: null,
+      description: "Can help pull action items from emails and keep follow-ups from slipping.",
+      toolCount: 61,
+      connections: [],
+    },
+    {
+      slug: "slack",
+      displayName: "Slack",
+      authMode: "managed",
+      hasAuthConfig: true,
+      logoUrl: null,
+      description: "Future workspace signals for work check-ins and project context.",
+      toolCount: 38,
+      connections: [],
+    },
+  ];
+
+  return (
+    <ConsumerPanel eyebrow="Integrations" title="Connections">
+      <div className="grid grid-cols-1 gap-3 xl:grid-cols-4">
+        <SmallStat label="connected" value={1} />
+        <SmallStat label="available" value={3} />
+        <SmallStat label="oauth" value="demo" />
+        <SmallStat label="scope" value="phone" />
+      </div>
+      <section className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+        {demoToolkits.map((toolkit) => (
+          <article key={toolkit.slug} className="overflow-hidden rounded-2xl border border-white/10 bg-[#1d1d20]">
+            <div className="flex items-start gap-3 p-4">
+              <IntegrationLogoMark toolkit={toolkit} />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="truncate text-sm font-semibold text-zinc-100">
+                    {toolkit.displayName}
+                  </h3>
+                  {toolkit.connections.length > 0 ? (
+                    <span className="rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300">
+                      connected
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-white/5 px-2 py-0.5 text-[11px] font-medium text-zinc-500">
+                      available
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 line-clamp-2 text-xs leading-5 text-zinc-500">
+                  {toolkit.description}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-medium text-zinc-400">
+                demo
+              </span>
+            </div>
+          </article>
+        ))}
+      </section>
+    </ConsumerPanel>
+  );
+}
+
 function IntegrationCard({
   toolkit,
   busy,
@@ -2122,6 +2504,48 @@ function SettingsView({
           className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
         >
           sign out
+        </button>
+      </section>
+    </ConsumerPanel>
+  );
+}
+
+function DemoSettingsView({
+  dashboard,
+  azrajNumber,
+  onExitDemo,
+}: {
+  dashboard: PublicDashboard;
+  azrajNumber: string;
+  onExitDemo: () => void;
+}) {
+  return (
+    <ConsumerPanel eyebrow="Demo account" title="Settings">
+      <section className="rounded-2xl border border-white/10 bg-[#1d1d20] p-4">
+        <div className="max-w-2xl">
+          <div className="text-[11px] font-medium uppercase text-zinc-500">read-only demo</div>
+          <h3 className="mt-1 text-sm font-semibold text-zinc-100">
+            this dashboard is sample data
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-zinc-400">
+            Reviewers can explore the product without texting Azraj, creating accounts, or
+            configuring local API keys. Real users sign in with their phone number.
+          </p>
+        </div>
+      </section>
+      <section className="rounded-2xl border border-white/10 bg-[#1d1d20] p-4">
+        <div className="grid gap-4 md:grid-cols-2">
+          <SmallFact label="phone" value={dashboard.user.phoneE164} />
+          <SmallFact label="status" value="demo" />
+          <SmallFact label="timezone" value={dashboard.user.timezone ?? "America/New_York"} />
+          <SmallFact label="azraj number" value={azrajNumber} />
+        </div>
+        <button
+          type="button"
+          onClick={onExitDemo}
+          className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm font-medium text-zinc-200 transition hover:bg-white/10"
+        >
+          exit demo
         </button>
       </section>
     </ConsumerPanel>
