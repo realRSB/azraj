@@ -150,6 +150,7 @@ export function isPublicServerRequest(request: RequestLike): boolean {
     (readsPublicWeb &&
       (normalizedPath === "/" ||
         normalizedPath === "/dashboard" ||
+        normalizedPath === "/demo" ||
         normalizedPath === "/index.html" ||
         normalizedPath.startsWith("/assets/"))) ||
     (method === "GET" && normalizedPath === "/health") ||
