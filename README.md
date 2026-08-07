@@ -10,6 +10,11 @@ Azraj adapts to how the user talks, including increasing or decreasing the weigh
 Able to send reminders to pressure the user into accomplish their tasks
 
 ## how to use/set up
+0. No setup demo
+Open [azraj.tech/demo](https://azraj.tech/demo)
+
+This uses sample data so anyone can try the website and dashboard without cloning the repo.
+
 1. Local checklist
 - Fork the repo: https://github.com/realRSB/Azraj.git
 - cd to the repo and run
@@ -52,6 +57,8 @@ Open the website [Dashboard link](azraj.tech)
 Currently it might not work because it only works on verified contacts, but that will be fixed soon because it costs $100/month for the subscription
 
 ## screenshots and demo link
+Try the live demo: [azraj.tech/demo](https://azraj.tech/demo)
+
 Demo: [watch the Azraj walkthrough](https://drive.google.com/file/d/1CqKARPhTX1pyyzSjcG348psmlQbBcOZP/view?usp=sharing)
 
 Landing page:
